@@ -122,9 +122,12 @@ int main(int argc, char** argv)
 	erofs_inode_manager_init();
 
 	root_nid = sbi.root_nid;
+	root_inode = erofs_new_inode();
 	err = erofs_ilookup("/", root_inode);
 	if (err) {
 		fprintf(stderr, "failed to look up root inode");
 		return 1;
 	}
+	
+	return 0;
 }

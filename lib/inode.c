@@ -1087,3 +1087,146 @@ struct erofs_inode *erofs_mkfs_build_tree_from_path(struct erofs_inode *parent,
 	return erofs_mkfs_build_tree(inode);
 }
 
+struct erofs_inode *erofs_iget_from_img_path(const char *path)
+{
+	int ret = 0;
+	struct erofs_inode *inode = erofs_new_inode();
+	ret = erofs_ilookup(path, inode);
+	return inode;
+}
+
+struct erofs_inode *erofs_dumpfs_make_tree(struct erofs_inode *dir)
+{
+
+	int ret;
+	struct dirent *dp;
+	struct erofs_dentry *d;
+	unsigned int nr_subdirs;
+
+	ret = erofs_prepare_xattr_ibody(dir);
+	if (ret < 0)
+		return ERR_PTR(ret);
+
+	// if file is not dir, get inode and return
+	if (!S_ISDIR(dir->i_mode)) {
+		if (S_ISLNK(dir->i_mode)) {
+			
+		} else {
+
+		}
+		return dir;
+	}
+
+	// if it is dir, iterate to make a tree.
+	nr_subdirs = 0;
+	while (1) {
+		/*
+		 * set errno to 0 before calling readdir() in order to
+		 * distinguish end of stream and from an error.
+		 */
+		errno = 0;
+		dp = readdir(_dir);
+		if (!dp)
+			break;
+
+		if (is_dot_dotdot(dp->d_name) ||
+		    !strncmp(dp->d_name, "lost+found", strlen("lost+found")))
+			continue;
+
+		/* skip if it's a exclude file */
+		if (erofs_is_exclude_path(dir->i_srcpath, dp->d_name))
+			continue;
+
+		d = erofs_d_alloc(dir, dp->d_name);
+		if (IS_ERR(d)) {
+			ret = PTR_ERR(d);
+			goto err_closedir;
+		}
+		nr_subdirs++;
+
+		/* to count i_nlink for directories */
+		d->type = (dp->d_type == DT_DIR ?
+			EROFS_FT_DIR : EROFS_FT_UNKNOWN);
+	}
+
+	if (errno) {
+		ret = -errno;
+		goto err_closedir;
+	}
+	closedir(_dir);
+
+	ret = erofs_prepare_dir_file(dir, nr_subdirs);
+	if (ret)
+		goto err;
+
+	ret = erofs_prepare_inode_buffer(dir);
+	if (ret)
+		goto err;
+
+	if (IS_ROOT(dir))
+		erofs_fixup_meta_blkaddr(dir);
+
+	list_for_each_entry(d, &dir->i_subdirs, d_child) {
+		char buf[PATH_MAX];
+		unsigned char ftype;
+
+		if (is_dot_dotdot(d->name)) {
+			erofs_d_invalidate(d);
+			continue;
+		}
+
+		ret = snprintf(buf, PATH_MAX, "%s/%s",
+			       dir->i_srcpath, d->name);
+		if (ret < 0 || ret >= PATH_MAX) {
+			/* ignore the too long path */
+			goto fail;
+		}
+
+		d->inode = erofs_mkfs_build_tree_from_path(dir, buf);
+		if (IS_ERR(d->inode)) {
+			ret = PTR_ERR(d->inode);
+fail:
+			d->inode = NULL;
+			d->type = EROFS_FT_UNKNOWN;
+			goto err;
+		}
+
+		ftype = erofs_mode_to_ftype(d->inode->i_mode);
+		DBG_BUGON(ftype == EROFS_FT_DIR && d->type != ftype);
+		d->type = ftype;
+
+		erofs_d_invalidate(d);
+		erofs_info("add file %s/%s (nid %llu, type %d)",
+			   dir->i_srcpath, d->name, (unsigned long long)d->nid,
+			   d->type);
+	}
+	erofs_write_dir_file(dir);
+	erofs_write_tail_end(dir);
+	return dir;
+
+err_closedir:
+	closedir(_dir);
+err:
+	return ERR_PTR(ret);
+}
+
+struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
+{
+	struct erofs_inode *const inode = erofs_iget_from_img_path(path); 
+	int err = erofs_ilookup(path, inode);
+	if (IS_ERR(inode))
+		return inode;
+
+	/* a hardlink to the existed inode */
+	if (inode->i_parent) {
+		++inode->i_nlink;
+		return inode;
+	}
+
+	/* a completely new inode is found */
+	if (parent)
+		inode->i_parent = parent;
+	else
+		inode->i_parent = inode;	/* rootdir mark */
+	return erofs_dumpfs_make_tree(inode);
+}
