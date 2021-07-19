@@ -1,3 +1,0 @@
-
-all : dump
-dump :

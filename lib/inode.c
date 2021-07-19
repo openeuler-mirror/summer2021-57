@@ -960,17 +960,9 @@ struct erofs_inode *erofs_mkfs_build_tree(struct erofs_inode *dir)
 				return ERR_PTR(ret);
 		}
 
-		erofs_prepare_inode_buffer(dir);
-		erofs_write_tail_end(dir);
 		return dir;
 	}
 
-	_dir = opendir(dir->i_srcpath);
-	if (!_dir) {
-		erofs_err("failed to opendir at %s: %s",
-			  dir->i_srcpath, erofs_strerror(errno));
-		return ERR_PTR(-errno);
-	}
 
 	nr_subdirs = 0;
 	while (1) {
@@ -994,7 +986,6 @@ struct erofs_inode *erofs_mkfs_build_tree(struct erofs_inode *dir)
 		d = erofs_d_alloc(dir, dp->d_name);
 		if (IS_ERR(d)) {
 			ret = PTR_ERR(d);
-			goto err_closedir;
 		}
 		nr_subdirs++;
 
@@ -1005,9 +996,7 @@ struct erofs_inode *erofs_mkfs_build_tree(struct erofs_inode *dir)
 
 	if (errno) {
 		ret = -errno;
-		goto err_closedir;
 	}
-	closedir(_dir);
 
 	ret = erofs_prepare_dir_file(dir, nr_subdirs);
 	if (ret)
@@ -1054,12 +1043,8 @@ fail:
 			   dir->i_srcpath, d->name, (unsigned long long)d->nid,
 			   d->type);
 	}
-	erofs_write_dir_file(dir);
-	erofs_write_tail_end(dir);
 	return dir;
 
-err_closedir:
-	closedir(_dir);
 err:
 	return ERR_PTR(ret);
 }
@@ -1092,6 +1077,8 @@ struct erofs_inode *erofs_iget_from_img_path(const char *path)
 	int ret = 0;
 	struct erofs_inode *inode = erofs_new_inode();
 	ret = erofs_ilookup(path, inode);
+	// add inode to ihash by i_ino/nid
+	// error process
 	return inode;
 }
 
@@ -1099,11 +1086,11 @@ struct erofs_inode *erofs_dumpfs_make_tree(struct erofs_inode *dir)
 {
 
 	int ret;
-	struct dirent *dp;
-	struct erofs_dentry *d;
+	struct erofs_dentry *d;	
+	char *buf[EROFS_BLKSIZ];
 	unsigned int nr_subdirs;
-
-	ret = erofs_prepare_xattr_ibody(dir);
+	erofs_off_t offset;
+	
 	if (ret < 0)
 		return ERR_PTR(ret);
 
@@ -1119,52 +1106,46 @@ struct erofs_inode *erofs_dumpfs_make_tree(struct erofs_inode *dir)
 
 	// if it is dir, iterate to make a tree.
 	nr_subdirs = 0;
-	while (1) {
+	offset = 0;
+	while (offset < dir->i_size) {
 		/*
 		 * set errno to 0 before calling readdir() in order to
 		 * distinguish end of stream and from an error.
 		 */
+		struct erofs_dirent *de = (void *)buf;
+		struct erofs_dirent *end;
+		erofs_off_t maxsize = min_t(erofs_off_t, dir->i_size - offset, EROFS_BLKSIZ);
+		unsigned int nameoff;
 		errno = 0;
-		dp = readdir(_dir);
-		if (!dp)
-			break;
 
-		if (is_dot_dotdot(dp->d_name) ||
-		    !strncmp(dp->d_name, "lost+found", strlen("lost+found")))
-			continue;
+		ret = erofs_pread(dir, buf, maxsize, offset);
+		if (ret)
+			return NULL;
+		nameoff = le16_to_cpu(de->nameoff);
+		end = (void*)(buf + nameoff);
 
-		/* skip if it's a exclude file */
-		if (erofs_is_exclude_path(dir->i_srcpath, dp->d_name))
-			continue;
-
-		d = erofs_d_alloc(dir, dp->d_name);
-		if (IS_ERR(d)) {
-			ret = PTR_ERR(d);
-			goto err_closedir;
+		while (de < end) {
+			const char *de_name;
+			unsigned int de_namelen;
+			nameoff = le16_to_cpu(de->nameoff);
+			de_name = buf + nameoff;
+			if (de + 1 >= end)
+				de_namelen = strnlen(de_name, maxsize - nameoff);
+			else
+				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
+			
+			//should be full path, but use filename for now.
+			d = erofs_d_alloc(dir, de_name);
+			d->type = de->file_type;
+			++de;
+			nr_subdirs++;
 		}
-		nr_subdirs++;
-
-		/* to count i_nlink for directories */
-		d->type = (dp->d_type == DT_DIR ?
-			EROFS_FT_DIR : EROFS_FT_UNKNOWN);
+		offset += maxsize;
 	}
-
-	if (errno) {
-		ret = -errno;
-		goto err_closedir;
-	}
-	closedir(_dir);
 
 	ret = erofs_prepare_dir_file(dir, nr_subdirs);
 	if (ret)
 		goto err;
-
-	ret = erofs_prepare_inode_buffer(dir);
-	if (ret)
-		goto err;
-
-	if (IS_ROOT(dir))
-		erofs_fixup_meta_blkaddr(dir);
 
 	list_for_each_entry(d, &dir->i_subdirs, d_child) {
 		char buf[PATH_MAX];
@@ -1182,7 +1163,7 @@ struct erofs_inode *erofs_dumpfs_make_tree(struct erofs_inode *dir)
 			goto fail;
 		}
 
-		d->inode = erofs_mkfs_build_tree_from_path(dir, buf);
+		d->inode = erofs_dumpfs_build_tree_from_path(dir, buf);
 		if (IS_ERR(d->inode)) {
 			ret = PTR_ERR(d->inode);
 fail:
@@ -1204,8 +1185,6 @@ fail:
 	erofs_write_tail_end(dir);
 	return dir;
 
-err_closedir:
-	closedir(_dir);
 err:
 	return ERR_PTR(ret);
 }
@@ -1213,7 +1192,6 @@ err:
 struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
 {
 	struct erofs_inode *const inode = erofs_iget_from_img_path(path); 
-	int err = erofs_ilookup(path, inode);
 	if (IS_ERR(inode))
 		return inode;
 
@@ -1229,4 +1207,11 @@ struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent
 	else
 		inode->i_parent = inode;	/* rootdir mark */
 	return erofs_dumpfs_make_tree(inode);
+}
+
+struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
+{
+	struct erofs_inode *inode = erofs_iget_from_img_path(path);
+	
+	
 }
