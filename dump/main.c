@@ -10,52 +10,54 @@
 
 #define EROFS_SUPER_END (EROFS_SUPER_OFFSET + sizeof(struct erofs_super_block))
 
+//dumpfs config
+struct dumpcfg {
+
+
+};
+static struct dumpcfg dumpcfg;
+
 static struct option long_options[] = {
 	{"help", no_argument, 0, 1},
 	{0, 0, 0, 0},
 };
+
 static void usage(void)
 {
+	// TODO
 	fputs("usage: [options] erofs-image \n"
 	" waiting to be done...	\n", stderr);
 }
+
 static parse_extended_opts(const char *opts)
 {
-
+	// TODO
 }
+
 static dumpfs_parse_options_cfg(int argc, char **argv)
 {
 	char *endptr;
 	int opt, i;
-	while((opt = getopt_long(argc, argv, "d:x:z:E:T:U:", long_options, NULL)) != -1) {
+	while((opt = getopt_long(argc, argv, "sSVi:I:", long_options, NULL)) != -1) {
 		switch (opt) {
-			case 'd':
-				i = atoi(optarg);
-				if (i < EROFS_MSG_MIN || i > EROFS_MSG_MAX) {
-					erofs_err("invalid debug level %d", i);
-					return -EINVAL;
-				}
-				cfg.c_dbg_lvl = i;
+			case 's':
 				break;
-
+			case 'S':
+				break;
 			case 'V':
-				opt = parse_extended_opts(optarg);
 				if (opt)
 					return opt;
 				break;
-			case 'S':
-				cfg.c_unix_timestamp = strtoull(optarg, &endptr, 0);
-				if (cfg.c_unix_timestamp == -1 || *endptr != '\0') {
-					erofs_err("invalid UNIX timestamp %s", optarg);
-					return -EINVAL;
-				}
-				cfg.c_timeinherit = TIMESTAMP_FIXED;
-				break;
-			case 'M':
+			case 'i':
 				// to do
+				i = atoi(optarg);
+				break;
+			case 'I':
+				i = atoi(optarg);
 				break;
 
 			case 1:
+				// long option --help 
 				usage();
 				exit(0);
 
@@ -71,20 +73,30 @@ static dumpfs_parse_options_cfg(int argc, char **argv)
 	if (!cfg.c_img_path)
 		return -ENOMEM;
 
-	if (optind >= argc) {
-		erofs_err("Source directory is missing");
-		return -EINVAL;
-	}
-
 	if (optind < argc) {
 		erofs_err("Unexpected argument: %s\n", argv[optind]);
 		return -EINVAL;
 	}
 	return 0;
 }
-static struct options {
-	// to do
-} dumpcfg;
+static void dumpfs_print_super_block()
+{
+	fprintf(stderr, "Filesystem UUID:		%s\n", sbi.uuid);
+	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
+	fprintf(stderr, "Filesystem blocks: 		%llu\n", sbi.blocks);
+	fprintf(stderr, "Filesystem meta address:	0x%04X\n", sbi.meta_blkaddr);
+	fprintf(stderr, "Filesystem xattr address:	0x%04X\n", sbi.xattr_blkaddr);
+	fprintf(stderr, "Filesystem root nid:		%lld\n", sbi.root_nid);
+	fprintf(stderr, "Filesystem inodes count:	%lld", sbi.inos);
+
+	fprintf(stderr, "Filesystem created:		%s", ctime(sbi.build_time));
+
+}
+
+static void dumpfs_statistic()
+{
+
+}
 
 int main(int argc, char** argv) 
 {
