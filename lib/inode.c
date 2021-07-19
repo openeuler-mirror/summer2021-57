@@ -1212,6 +1212,7 @@ struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent
 struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
 {
 	struct erofs_inode *inode = erofs_iget_from_img_path(path);
-	
+	// TODO
+	return inode;
 	
 }

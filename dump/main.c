@@ -12,8 +12,13 @@
 
 //dumpfs config
 struct dumpcfg {
+	bool print_superblock;
+	bool print_inode;
+	bool print_inode_phy;
+	bool print_statistic;
+	bool print_version; 
 
-
+	int ino;
 };
 static struct dumpcfg dumpcfg;
 
@@ -41,19 +46,26 @@ static dumpfs_parse_options_cfg(int argc, char **argv)
 	while((opt = getopt_long(argc, argv, "sSVi:I:", long_options, NULL)) != -1) {
 		switch (opt) {
 			case 's':
+				dumpcfg.print_superblock = true;
 				break;
 			case 'S':
+				dumpcfg.print_statistic = true;
 				break;
 			case 'V':
+				dumpcfg.print_version = true;
 				if (opt)
 					return opt;
 				break;
 			case 'i':
 				// to do
 				i = atoi(optarg);
+				dumpcfg.print_inode = true;
+				dumpcfg.ino = i;
 				break;
 			case 'I':
 				i = atoi(optarg);
+				dumpcfg.print_inode_phy = true;
+				dumpcfg.ino = i;
 				break;
 
 			case 1:
@@ -79,7 +91,15 @@ static dumpfs_parse_options_cfg(int argc, char **argv)
 	}
 	return 0;
 }
-static void dumpfs_print_super_block()
+
+static void dumpfs_print_version()
+{
+	// TODO
+	fprintf(stderr, "TODO");
+	fprintf(stderr, "VERSION INFO");
+}
+
+static void dumpfs_print_superblock()
 {
 	fprintf(stderr, "Filesystem UUID:		%s\n", sbi.uuid);
 	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
@@ -93,7 +113,17 @@ static void dumpfs_print_super_block()
 
 }
 
-static void dumpfs_statistic()
+static void dumpfs_print_inode()
+{
+
+}
+
+static void dumpfs_print_inode_phy()
+{
+
+}
+
+static void dumpfs_print_statistic()
 {
 
 }
@@ -131,15 +161,28 @@ int main(int argc, char** argv)
 		fprintf(stderr, "failed to read erofs super block\n");
 		return 1;
 	}	
-	erofs_inode_manager_init();
 
-	root_nid = sbi.root_nid;
-	root_inode = erofs_new_inode();
-	err = erofs_ilookup("/", root_inode);
+	if (dumpcfg.print_version)
+		dumpfs_print_version();
+	
+	if (dumpcfg.print_superblock)
+		dumpfs_print_superblock();
+	
+//	root_nid = sbi.root_nid;
+//	root_inode = erofs_new_inode();
+//	err = erofs_ilookup("/", root_inode);
 	if (err) {
 		fprintf(stderr, "failed to look up root inode");
 		return 1;
 	}
+
+	if (dumpcfg.print_inode)
+		dumpfs_print_inode();
+	else if (dumpcfg.print_inode_phy)
+		dumpfs_print_inode_phy();
 	
+	if (dumpcfg.print_statistic)
+		dumpfs_print_statistic();
+
 	return 0;
 }
