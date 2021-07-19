@@ -963,7 +963,13 @@ struct erofs_inode *erofs_mkfs_build_tree(struct erofs_inode *dir)
 		return dir;
 	}
 
-
+	_dir = opendir(dir->i_srcpath);
+	if (!_dir) {
+		erofs_err("%s, failed to opendir at %s: %s",
+			  __func__, dir->i_srcpath, erofs_strerror(errno));
+		return ERR_PTR(-errno);
+	}
+	
 	nr_subdirs = 0;
 	while (1) {
 		/*
@@ -1072,147 +1078,149 @@ struct erofs_inode *erofs_mkfs_build_tree_from_path(struct erofs_inode *parent,
 	return erofs_mkfs_build_tree(inode);
 }
 
-struct erofs_inode *erofs_iget_from_img_path(const char *path)
-{
-	int ret = 0;
-	struct erofs_inode *inode = erofs_new_inode();
-	ret = erofs_ilookup(path, inode);
-	// add inode to ihash by i_ino/nid
-	// error process
-	return inode;
-}
-
-struct erofs_inode *erofs_dumpfs_make_tree(struct erofs_inode *dir)
-{
-
-	int ret;
-	struct erofs_dentry *d;	
-	char *buf[EROFS_BLKSIZ];
-	unsigned int nr_subdirs;
-	erofs_off_t offset;
-	
-	if (ret < 0)
-		return ERR_PTR(ret);
-
-	// if file is not dir, get inode and return
-	if (!S_ISDIR(dir->i_mode)) {
-		if (S_ISLNK(dir->i_mode)) {
-			
-		} else {
-
-		}
-		return dir;
-	}
-
-	// if it is dir, iterate to make a tree.
-	nr_subdirs = 0;
-	offset = 0;
-	while (offset < dir->i_size) {
-		/*
-		 * set errno to 0 before calling readdir() in order to
-		 * distinguish end of stream and from an error.
-		 */
-		struct erofs_dirent *de = (void *)buf;
-		struct erofs_dirent *end;
-		erofs_off_t maxsize = min_t(erofs_off_t, dir->i_size - offset, EROFS_BLKSIZ);
-		unsigned int nameoff;
-		errno = 0;
-
-		ret = erofs_pread(dir, buf, maxsize, offset);
-		if (ret)
-			return NULL;
-		nameoff = le16_to_cpu(de->nameoff);
-		end = (void*)(buf + nameoff);
-
-		while (de < end) {
-			const char *de_name;
-			unsigned int de_namelen;
-			nameoff = le16_to_cpu(de->nameoff);
-			de_name = buf + nameoff;
-			if (de + 1 >= end)
-				de_namelen = strnlen(de_name, maxsize - nameoff);
-			else
-				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
-			
-			//should be full path, but use filename for now.
-			d = erofs_d_alloc(dir, de_name);
-			d->type = de->file_type;
-			++de;
-			nr_subdirs++;
-		}
-		offset += maxsize;
-	}
-
-	ret = erofs_prepare_dir_file(dir, nr_subdirs);
-	if (ret)
-		goto err;
-
-	list_for_each_entry(d, &dir->i_subdirs, d_child) {
-		char buf[PATH_MAX];
-		unsigned char ftype;
-
-		if (is_dot_dotdot(d->name)) {
-			erofs_d_invalidate(d);
-			continue;
-		}
-
-		ret = snprintf(buf, PATH_MAX, "%s/%s",
-			       dir->i_srcpath, d->name);
-		if (ret < 0 || ret >= PATH_MAX) {
-			/* ignore the too long path */
-			goto fail;
-		}
-
-		d->inode = erofs_dumpfs_build_tree_from_path(dir, buf);
-		if (IS_ERR(d->inode)) {
-			ret = PTR_ERR(d->inode);
-fail:
-			d->inode = NULL;
-			d->type = EROFS_FT_UNKNOWN;
-			goto err;
-		}
-
-		ftype = erofs_mode_to_ftype(d->inode->i_mode);
-		DBG_BUGON(ftype == EROFS_FT_DIR && d->type != ftype);
-		d->type = ftype;
-
-		erofs_d_invalidate(d);
-		erofs_info("add file %s/%s (nid %llu, type %d)",
-			   dir->i_srcpath, d->name, (unsigned long long)d->nid,
-			   d->type);
-	}
-	erofs_write_dir_file(dir);
-	erofs_write_tail_end(dir);
-	return dir;
-
-err:
-	return ERR_PTR(ret);
-}
-
-struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
-{
-	struct erofs_inode *const inode = erofs_iget_from_img_path(path); 
-	if (IS_ERR(inode))
-		return inode;
-
-	/* a hardlink to the existed inode */
-	if (inode->i_parent) {
-		++inode->i_nlink;
-		return inode;
-	}
-
-	/* a completely new inode is found */
-	if (parent)
-		inode->i_parent = parent;
-	else
-		inode->i_parent = inode;	/* rootdir mark */
-	return erofs_dumpfs_make_tree(inode);
-}
-
-struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
-{
-	struct erofs_inode *inode = erofs_iget_from_img_path(path);
-	// TODO
-	return inode;
-	
-}
+//struct erofs_inode *erofs_iget_from_img_path(const char *path)
+//{
+//	int ret = 0;
+//	struct erofs_inode *inode = erofs_new_inode();
+//	ret = erofs_ilookup(path, inode);
+//	// add inode to ihash by i_ino/nid
+//	// error process
+//	if (ret) {
+//		//TODO
+//	}
+//	return inode;
+//}
+//
+//struct erofs_inode *erofs_dumpfs_make_tree(struct erofs_inode *dir)
+//{
+//
+//	int ret;
+//	struct erofs_dentry *d;	
+//	char buf[EROFS_BLKSIZ];
+//	unsigned int nr_subdirs;
+//	erofs_off_t offset;
+//	
+//
+//	// if file is not dir, get inode and return
+//	if (!S_ISDIR(dir->i_mode)) {
+//		if (S_ISLNK(dir->i_mode)) {
+//			
+//		} else {
+//
+//		}
+//		return dir;
+//	}
+//
+//	// if it is dir, iterate to make a tree.
+//	nr_subdirs = 0;
+//	offset = 0;
+//	while (offset < dir->i_size) {
+//		/*
+//		 * set errno to 0 before calling readdir() in order to
+//		 * distinguish end of stream and from an error.
+//		 */
+//		struct erofs_dirent *de = (void *)buf;
+//		struct erofs_dirent *end;
+//		erofs_off_t maxsize = min_t(erofs_off_t, dir->i_size - offset, EROFS_BLKSIZ);
+//		unsigned int nameoff;
+//		errno = 0;
+//
+//		ret = erofs_pread(dir, buf, maxsize, offset);
+//		if (ret)
+//			return NULL;
+//		nameoff = le16_to_cpu(de->nameoff);
+//		end = (void*)(buf + nameoff);
+//
+//		while (de < end) {
+//			const char *de_name;
+//			unsigned int de_namelen;
+//			nameoff = le16_to_cpu(de->nameoff);
+//			de_name = buf + nameoff;
+//			if (de + 1 >= end)
+//				de_namelen = strnlen(de_name, maxsize - nameoff);
+//			else
+//				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
+//			
+//			//should be full path, but use filename for now.
+//			
+//			d = erofs_d_alloc(dir, de_name);
+//			d->type = de->file_type;
+//			++de;
+//			nr_subdirs++;
+//		}
+//		offset += maxsize;
+//	}
+//
+//	ret = erofs_prepare_dir_file(dir, nr_subdirs);
+//	if (ret)
+//		goto err;
+//
+//	list_for_each_entry(d, &dir->i_subdirs, d_child) {
+//		char buf[PATH_MAX];
+//		unsigned char ftype;
+//
+//		if (is_dot_dotdot(d->name)) {
+//			erofs_d_invalidate(d);
+//			continue;
+//		}
+//
+//		ret = snprintf(buf, PATH_MAX, "%s/%s",
+//			       dir->i_srcpath, d->name);
+//		if (ret < 0 || ret >= PATH_MAX) {
+//			/* ignore the too long path */
+//			goto fail;
+//		}
+//
+//		d->inode = erofs_dumpfs_build_tree_from_path(dir, buf);
+//		if (IS_ERR(d->inode)) {
+//			ret = PTR_ERR(d->inode);
+//fail:
+//			d->inode = NULL;
+//			d->type = EROFS_FT_UNKNOWN;
+//			goto err;
+//		}
+//
+//		ftype = erofs_mode_to_ftype(d->inode->i_mode);
+//		DBG_BUGON(ftype == EROFS_FT_DIR && d->type != ftype);
+//		d->type = ftype;
+//
+//		erofs_d_invalidate(d);
+//		erofs_info("add file %s/%s (nid %llu, type %d)",
+//			   dir->i_srcpath, d->name, (unsigned long long)d->nid,
+//			   d->type);
+//	}
+//	erofs_write_dir_file(dir);
+//	erofs_write_tail_end(dir);
+//	return dir;
+//
+//err:
+//	return ERR_PTR(ret);
+//}
+//
+//struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
+//{
+//	struct erofs_inode *const inode = erofs_iget_from_img_path(path); 
+//	if (IS_ERR(inode))
+//		return inode;
+//
+//	/* a hardlink to the existed inode */
+//	if (inode->i_parent) {
+//		++inode->i_nlink;
+//		return inode;
+//	}
+//
+//	/* a completely new inode is found */
+//	if (parent)
+//		inode->i_parent = parent;
+//	else
+//		inode->i_parent = inode;	/* rootdir mark */
+//	return erofs_dumpfs_make_tree(inode);
+//}
+//
+//struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path)
+//{
+//	struct erofs_inode *inode = erofs_iget_from_img_path(path);
+//	// TODO
+//	return inode;
+//	
+//}

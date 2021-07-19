@@ -1,6 +1,10 @@
+#include <time.h>
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <libgen.h>
 #include <getopt.h>
+#include <stdlib.h>
+
 
 #include "erofs/config.h"
 #include "erofs/inode.h"
@@ -34,14 +38,13 @@ static void usage(void)
 	" waiting to be done...	\n", stderr);
 }
 
-static parse_extended_opts(const char *opts)
-{
-	// TODO
-}
+//static void parse_extended_opts(const char *opts)
+//{
+//	// TODO
+//}
 
-static dumpfs_parse_options_cfg(int argc, char **argv)
+static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
-	char *endptr;
 	int opt, i;
 	while((opt = getopt_long(argc, argv, "sSVi:I:", long_options, NULL)) != -1) {
 		switch (opt) {
@@ -103,13 +106,13 @@ static void dumpfs_print_superblock()
 {
 	fprintf(stderr, "Filesystem UUID:		%s\n", sbi.uuid);
 	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
-	fprintf(stderr, "Filesystem blocks: 		%llu\n", sbi.blocks);
+	fprintf(stderr, "Filesystem blocks: 		%lu\n", sbi.blocks);
 	fprintf(stderr, "Filesystem meta address:	0x%04X\n", sbi.meta_blkaddr);
 	fprintf(stderr, "Filesystem xattr address:	0x%04X\n", sbi.xattr_blkaddr);
-	fprintf(stderr, "Filesystem root nid:		%lld\n", sbi.root_nid);
-	fprintf(stderr, "Filesystem inodes count:	%lld", sbi.inos);
+	fprintf(stderr, "Filesystem root nid:		%ld\n", sbi.root_nid);
+	fprintf(stderr, "Filesystem inodes count:	%ld", sbi.inos);
 
-	fprintf(stderr, "Filesystem created:		%s", ctime(sbi.build_time));
+	//fprintf(stderr, "Filesystem created:		%s", ctime(sbi.build_time));
 
 }
 
@@ -131,9 +134,6 @@ static void dumpfs_print_statistic()
 int main(int argc, char** argv) 
 {
 	int err = 0;
-	struct erofs_buffer_head *sb_bh;
-	struct erofs_inode *root_inode;
-	erofs_nid_t root_nid;
 
 	// init config
 	erofs_init_configure();
@@ -142,7 +142,7 @@ int main(int argc, char** argv)
 	fprintf(stderr, "%s %s", basename(argv[0]), cfg.c_version);
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
-		if (err = -EINVAL)
+		if (err == -EINVAL)
 			usage();
 		return 1;
 	}

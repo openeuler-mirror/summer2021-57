@@ -17,5 +17,5 @@ unsigned int erofs_iput(struct erofs_inode *inode);
 erofs_nid_t erofs_lookupnid(struct erofs_inode *inode);
 struct erofs_inode *erofs_mkfs_build_tree_from_path(struct erofs_inode *parent,
 						    const char *path);
-
+// struct erofs_inode *erofs_dumpfs_build_tree_from_path(struct erofs_inode *parent, const char *path);
 #endif
