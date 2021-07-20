@@ -11,9 +11,9 @@
 #include "erofs/print.h"
 #include "erofs/io.h"
 
-
 #define EROFS_SUPER_END (EROFS_SUPER_OFFSET + sizeof(struct erofs_super_block))
 
+extern struct erofs_inode *erofs_new_inode(void);
 //dumpfs config
 struct dumpcfg {
 	bool print_superblock;
@@ -50,23 +50,26 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 		switch (opt) {
 			case 's':
 				dumpcfg.print_superblock = true;
+				fprintf(stderr, "parse -s \n");
 				break;
 			case 'S':
 				dumpcfg.print_statistic = true;
+				fprintf(stderr, "parse -S \n");
 				break;
 			case 'V':
 				dumpcfg.print_version = true;
-				if (opt)
-					return opt;
+				fprintf(stderr, "parse -V \n");
 				break;
 			case 'i':
 				// to do
 				i = atoi(optarg);
+				fprintf(stderr, "parse -i %d\n", i);
 				dumpcfg.print_inode = true;
 				dumpcfg.ino = i;
 				break;
 			case 'I':
 				i = atoi(optarg);
+				fprintf(stderr, "parse -I %d\n", i);
 				dumpcfg.print_inode_phy = true;
 				dumpcfg.ino = i;
 				break;
@@ -98,19 +101,18 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 static void dumpfs_print_version()
 {
 	// TODO
-	fprintf(stderr, "TODO");
-	fprintf(stderr, "VERSION INFO");
+	fprintf(stderr, "TODO\n");
+	fprintf(stderr, "VERSION INFO\n");
 }
 
 static void dumpfs_print_superblock()
 {
-	fprintf(stderr, "Filesystem UUID:		%s\n", sbi.uuid);
 	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
 	fprintf(stderr, "Filesystem blocks: 		%lu\n", sbi.blocks);
 	fprintf(stderr, "Filesystem meta address:	0x%04X\n", sbi.meta_blkaddr);
 	fprintf(stderr, "Filesystem xattr address:	0x%04X\n", sbi.xattr_blkaddr);
 	fprintf(stderr, "Filesystem root nid:		%ld\n", sbi.root_nid);
-	fprintf(stderr, "Filesystem inodes count:	%ld", sbi.inos);
+	fprintf(stderr, "Filesystem inodes count:	%ld\n", sbi.inos);
 
 	//fprintf(stderr, "Filesystem created:		%s", ctime(sbi.build_time));
 
@@ -134,12 +136,12 @@ static void dumpfs_print_statistic()
 int main(int argc, char** argv) 
 {
 	int err = 0;
-
+	struct erofs_inode *root_inode;
 	// init config
 	erofs_init_configure();
 
 	// print version info
-	fprintf(stderr, "%s %s", basename(argv[0]), cfg.c_version);
+	fprintf(stderr, "%s %s\n", basename(argv[0]), cfg.c_version);
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
 		if (err == -EINVAL)
@@ -162,19 +164,23 @@ int main(int argc, char** argv)
 		return 1;
 	}	
 
-	if (dumpcfg.print_version)
+	if (dumpcfg.print_version) {
 		dumpfs_print_version();
-	
-	if (dumpcfg.print_superblock)
+	}
+
+	if (dumpcfg.print_superblock) {
 		dumpfs_print_superblock();
-	
-//	root_nid = sbi.root_nid;
-//	root_inode = erofs_new_inode();
-//	err = erofs_ilookup("/", root_inode);
+	}
+
+	root_inode = erofs_new_inode();
+	err = erofs_ilookup("/", root_inode);	
 	if (err) {
 		fprintf(stderr, "failed to look up root inode");
 		return 1;
 	}
+
+	fprintf(stderr, "root inode nid:	%lu\n", root_inode->nid);
+	fprintf(stderr, "root inode size:	%lu\n", root_inode->i_size);
 
 	if (dumpcfg.print_inode)
 		dumpfs_print_inode();
