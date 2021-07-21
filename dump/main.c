@@ -262,12 +262,14 @@ static void dumpfs_print_inode_phy()
 
 }
 // file num、file size、file type
-static int read_dir(erofs_nid_t nid) 
+static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
 {
 	struct erofs_inode vi = { .nid = nid};
 	int ret;
 	char buf[EROFS_BLKSIZ];
 	erofs_off_t offset;
+	
+	fprintf(stderr, "read_dir: %lu\n", nid);
 
 	ret = erofs_read_inode_from_disk(&vi);
 	if (ret)
@@ -311,7 +313,7 @@ static int read_dir(erofs_nid_t nid)
 			/* a corrupted entry is found */
 			if (nameoff + de_namelen > maxsize ||
 			    de_namelen > EROFS_NAME_LEN) {
-				erofs_err("bogus dirent @ nid %llu", de->nid | 0ULL);
+				erofs_err("bogus dirent @ nid %llu", le64_to_cpu(de->nid) | 0ULL);
 				DBG_BUGON(1);
 				return -EFSCORRUPTED;
 			}
@@ -326,6 +328,13 @@ static int read_dir(erofs_nid_t nid)
 
 			case EROFS_FT_DIR:
 				statistics.dir_files++;
+				if (de->nid != nid && de->nid != parent_nid) {
+					ret = read_dir(de->nid, nid);
+					if (ret) {
+						fprintf(stderr, "parse dir nid%llu error occurred\n", de->nid);
+						return 1;
+					}
+				}
 				break;	
 
 			case EROFS_FT_CHRDEV:
@@ -372,7 +381,7 @@ static void dumpfs_print_statistic()
 	//blocks info
 	statistics.blocks = sbi.blocks;
 	
-	err = read_dir(sbi.root_nid);
+	err = read_dir(sbi.root_nid, sbi.root_nid);
 	if (err) {
 		fprintf(stderr, "read root dir failed!");
 		return;
