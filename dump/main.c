@@ -352,7 +352,7 @@ static int read_dir(erofs_nid_t nid)
 
 			++de;
 		}
-
+		offset += maxsize;
 	}
 	return 0;
 	
@@ -373,8 +373,22 @@ static void dumpfs_print_statistic()
 	statistics.blocks = sbi.blocks;
 	
 	err = read_dir(sbi.root_nid);
-	
+	if (err) {
+		fprintf(stderr, "read root dir failed!");
+		return;
+	}
+	// file type count
+	fprintf(stderr, "Filesystem Files:		%lu\n", statistics.files);
+	fprintf(stderr, "Filesystem Regular Files:	%lu\n", statistics.regular_files);
+	fprintf(stderr, "Filesystem Dir Files:		%lu\n", statistics.dir_files);
+	fprintf(stderr, "Filesystem CharDev Files:	%lu\n", statistics.chardev_files);
+	fprintf(stderr, "Filesystem BlkDev Files:	%lu\n", statistics.blkdev_files);
+	fprintf(stderr, "Filesystem FIFO Files:		%lu\n", statistics.fifo_files);
+	fprintf(stderr, "Filesystem SOCK Files:		%lu\n", statistics.sock_files);
+	fprintf(stderr, "Filesystem Link Files:		%lu\n", statistics.symlink_files);
 
+
+	return;
 }
 
 int main(int argc, char** argv) 
