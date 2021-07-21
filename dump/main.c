@@ -4,7 +4,7 @@
 #include <libgen.h>
 #include <getopt.h>
 #include <stdlib.h>
-
+#include <sys/sysmacros.h>
 
 #include "erofs/config.h"
 #include "erofs/inode.h"
@@ -26,6 +26,22 @@ struct dumpcfg {
 };
 static struct dumpcfg dumpcfg;
 
+// statistic info
+struct statistics {
+	unsigned long blocks;
+	unsigned long files;
+	unsigned long files_total_size;
+	unsigned long files_total_origin_size;
+	
+	unsigned long regular_files;
+	unsigned long dir_files;
+	unsigned long chardev_files;
+	unsigned long blkdev_files;
+	unsigned long fifo_files;
+	unsigned long sock_files;
+	unsigned long symlink_files;
+};
+static struct statistics statistics;
 static struct option long_options[] = {
 	{"help", no_argument, 0, 1},
 	{0, 0, 0, 0},
@@ -98,6 +114,124 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 	return 0;
 }
 
+static dev_t erofs_new_decode_dev(u32 dev)
+{
+	const unsigned int major = (dev & 0xfff00) >> 8;
+	const unsigned int minor = (dev & 0xff) | ((dev >> 12) & 0xfff00);
+
+	return makedev(major, minor);
+}
+
+
+static int erofs_read_inode_from_disk(struct erofs_inode *vi)
+{
+	int ret, ifmt;
+	char buf[sizeof(struct erofs_inode_extended)];
+	struct erofs_inode_compact *dic;
+	struct erofs_inode_extended *die;
+	const erofs_off_t inode_loc = iloc(vi->nid);
+
+	ret = dev_read(buf, inode_loc, sizeof(*dic));
+	if (ret < 0)
+		return -EIO;
+
+	dic = (struct erofs_inode_compact *)buf;
+	ifmt = le16_to_cpu(dic->i_format);
+
+	vi->datalayout = erofs_inode_datalayout(ifmt);
+	if (vi->datalayout >= EROFS_INODE_DATALAYOUT_MAX) {
+		erofs_err("unsupported datalayout %u of nid %llu",
+			  vi->datalayout, vi->nid | 0ULL);
+		return -EOPNOTSUPP;
+	}
+	switch (erofs_inode_version(ifmt)) {
+	case EROFS_INODE_LAYOUT_EXTENDED:
+		vi->inode_isize = sizeof(struct erofs_inode_extended);
+
+		ret = dev_read(buf + sizeof(*dic), inode_loc + sizeof(*dic),
+			       sizeof(*die) - sizeof(*dic));
+		if (ret < 0)
+			return -EIO;
+
+		die = (struct erofs_inode_extended *)buf;
+		vi->xattr_isize = erofs_xattr_ibody_size(die->i_xattr_icount);
+		vi->i_mode = le16_to_cpu(die->i_mode);
+
+		switch (vi->i_mode & S_IFMT) {
+		case S_IFREG:
+		case S_IFDIR:
+		case S_IFLNK:
+			vi->u.i_blkaddr = le32_to_cpu(die->i_u.raw_blkaddr);
+			break;
+		case S_IFCHR:
+		case S_IFBLK:
+			vi->u.i_rdev =
+				erofs_new_decode_dev(le32_to_cpu(die->i_u.rdev));
+			break;
+		case S_IFIFO:
+		case S_IFSOCK:
+			vi->u.i_rdev = 0;
+			break;
+		default:
+			goto bogusimode;
+		}
+
+		vi->i_uid = le32_to_cpu(die->i_uid);
+		vi->i_gid = le32_to_cpu(die->i_gid);
+		vi->i_nlink = le32_to_cpu(die->i_nlink);
+
+		vi->i_ctime = le64_to_cpu(die->i_ctime);
+		vi->i_ctime_nsec = le64_to_cpu(die->i_ctime_nsec);
+		vi->i_size = le64_to_cpu(die->i_size);
+		break;
+	case EROFS_INODE_LAYOUT_COMPACT:
+		vi->inode_isize = sizeof(struct erofs_inode_compact);
+		vi->xattr_isize = erofs_xattr_ibody_size(dic->i_xattr_icount);
+		vi->i_mode = le16_to_cpu(dic->i_mode);
+
+		switch (vi->i_mode & S_IFMT) {
+		case S_IFREG:
+		case S_IFDIR:
+		case S_IFLNK:
+			vi->u.i_blkaddr = le32_to_cpu(dic->i_u.raw_blkaddr);
+			break;
+		case S_IFCHR:
+		case S_IFBLK:
+			vi->u.i_rdev =
+				erofs_new_decode_dev(le32_to_cpu(dic->i_u.rdev));
+			break;
+		case S_IFIFO:
+		case S_IFSOCK:
+			vi->u.i_rdev = 0;
+			break;
+		default:
+			goto bogusimode;
+		}
+
+		vi->i_uid = le16_to_cpu(dic->i_uid);
+		vi->i_gid = le16_to_cpu(dic->i_gid);
+		vi->i_nlink = le16_to_cpu(dic->i_nlink);
+
+		vi->i_ctime = sbi.build_time;
+		vi->i_ctime_nsec = sbi.build_time_nsec;
+
+		vi->i_size = le32_to_cpu(dic->i_size);
+		break;
+	default:
+		erofs_err("unsupported on-disk inode version %u of nid %llu",
+			  erofs_inode_version(ifmt), vi->nid | 0ULL);
+		return -EOPNOTSUPP;
+	}
+
+	vi->flags = 0;
+	if (erofs_inode_is_data_compressed(vi->datalayout))
+		z_erofs_fill_inode(vi);
+	return 0;
+bogusimode:
+	erofs_err("bogus i_mode (%o) @ nid %llu", vi->i_mode, vi->nid | 0ULL);
+	return -EFSCORRUPTED;
+}
+
 static void dumpfs_print_version()
 {
 	// TODO
@@ -127,9 +261,119 @@ static void dumpfs_print_inode_phy()
 {
 
 }
+// file num、file size、file type
+static int read_dir(erofs_nid_t nid) 
+{
+	struct erofs_inode vi = { .nid = nid};
+	int ret;
+	char buf[EROFS_BLKSIZ];
+	erofs_off_t offset;
 
+	ret = erofs_read_inode_from_disk(&vi);
+	if (ret)
+		return ret;
+
+	offset = 0;
+	while (offset < vi.i_size) {
+		erofs_off_t maxsize = min_t(erofs_off_t,
+					vi.i_size - offset, EROFS_BLKSIZ);
+		struct erofs_dirent *de = (void *)buf;
+		struct erofs_dirent *end;
+		unsigned int nameoff;
+
+		ret = erofs_pread(&vi, buf, maxsize, offset);
+		if (ret)
+			return ret;
+
+		nameoff = le16_to_cpu(de->nameoff);
+
+		if (nameoff < sizeof(struct erofs_dirent) ||
+		    nameoff >= PAGE_SIZE) {
+			erofs_err("invalid de[0].nameoff %u @ nid %llu",
+				  nameoff, nid | 0ULL);
+			return -EFSCORRUPTED;
+		}
+
+		end = (void *)buf + nameoff;
+		while (de < end) {
+			const char *de_name;
+			unsigned int de_namelen;
+
+			nameoff = le16_to_cpu(de->nameoff);
+			de_name = (char *)buf + nameoff;
+
+			/* the last dirent in the block? */
+			if (de + 1 >= end)
+				de_namelen = strnlen(de_name, maxsize - nameoff);
+			else
+				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
+
+			/* a corrupted entry is found */
+			if (nameoff + de_namelen > maxsize ||
+			    de_namelen > EROFS_NAME_LEN) {
+				erofs_err("bogus dirent @ nid %llu", de->nid | 0ULL);
+				DBG_BUGON(1);
+				return -EFSCORRUPTED;
+			}
+			statistics.files++;
+			switch (de->file_type) {
+			case EROFS_FT_UNKNOWN:
+				break;	
+
+			case EROFS_FT_REG_FILE:
+				statistics.regular_files++;
+				break;	
+
+			case EROFS_FT_DIR:
+				statistics.dir_files++;
+				break;	
+
+			case EROFS_FT_CHRDEV:
+				statistics.chardev_files++;
+				break;	
+
+			case EROFS_FT_BLKDEV:
+				statistics.blkdev_files++;
+				break;	
+
+			case EROFS_FT_FIFO:
+				statistics.fifo_files++;
+				break;	
+
+			case EROFS_FT_SOCK:
+				statistics.sock_files++;
+				break;	
+
+			case EROFS_FT_SYMLINK:
+				statistics.symlink_files++;
+				break;
+
+			}
+
+			++de;
+		}
+
+	}
+	return 0;
+	
+}
 static void dumpfs_print_statistic()
 {
+	struct erofs_inode *root_inode;
+	int err;
+
+	root_inode = erofs_new_inode();
+	err = erofs_ilookup("/", root_inode);
+	if (err) {
+		fprintf(stderr, "look for root inode failed!");
+		return;
+	}
+	
+	//blocks info
+	statistics.blocks = sbi.blocks;
+	
+	err = read_dir(sbi.root_nid);
+	
 
 }
 
