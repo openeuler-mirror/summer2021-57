@@ -326,10 +326,10 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		return -1;
 	}
 
-	first = (struct z_erofs_vle_decompressed_index *) (compressdata + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
+	first = (struct z_erofs_vle_decompressed_index *) (compressdata); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
 	unsigned long lcn = 0;
 	unsigned long last_head_lcn = 0;
-
+	fprintf(stderr, "lcn max: %lu\n", lcn_max);
 	while (lcn < lcn_max) {
 		struct z_erofs_vle_decompressed_index *di = first + lcn;
 		advise = le16_to_cpu(di->di_advise);
@@ -337,27 +337,27 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
 		switch (type) {
 		case Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD:
+			fprintf(stderr, "nonhead lcn: %lu head lcn: %u\n ", lcn, le16_to_cpu(di->di_u.delta[0]));
 			lcn += le16_to_cpu(di->di_u.delta[1]) ? le16_to_cpu(di->di_u.delta[1]) : 1;
-			fprintf(stderr, "nonhead\n");
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
 		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
-			if (lcn == lcn_max - 1 && le32_to_cpu(di->di_u.blkaddr) == 0) {
-				lcn++;	
+			if (le32_to_cpu(di->di_u.blkaddr) == 0) {
+
 			} else {
 				last_head_lcn = lcn;
-				
 				filesize += pcluster_size;
-				lcn++;
 			}
-			fprintf(stderr, "head\n");
+			fprintf(stderr, "head lcn: %lu, blk addr: %u type: %u\n", lcn, le32_to_cpu(di->di_u.blkaddr), type);
+			lcn++;
 			break;
 		default:
 			DBG_BUGON(1);
 			return -EOPNOTSUPP;
 		}
+		
 	}	
-	
+	fprintf(stderr, "inode compressed blocks : %u\n", inode->u.i_blocks);
 	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
 	advise = le16_to_cpu(last->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
