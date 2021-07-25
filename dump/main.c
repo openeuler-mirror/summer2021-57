@@ -333,11 +333,12 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 	while (lcn < lcn_max) {
 		struct z_erofs_vle_decompressed_index *di = first + lcn;
 		advise = le16_to_cpu(di->di_advise);
-		type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
+		type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &
 			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
 		switch (type) {
 		case Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD:
 			lcn += le16_to_cpu(di->di_u.delta[1]) ? le16_to_cpu(di->di_u.delta[1]) : 1;
+			fprintf(stderr, "nonhead\n");
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
 		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
@@ -345,9 +346,11 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 				lcn++;	
 			} else {
 				last_head_lcn = lcn;
+				
 				filesize += pcluster_size;
 				lcn++;
 			}
+			fprintf(stderr, "head\n");
 			break;
 		default:
 			DBG_BUGON(1);
@@ -479,13 +482,14 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			}
 			statistics.files++;
 
-
+			unsigned long actual_size = 0;
 			switch (de->file_type) {
-
+			
 			case EROFS_FT_UNKNOWN:
 				break;	
 
 			case EROFS_FT_REG_FILE:
+				
 				ret = erofs_read_inode_from_disk(&inode);
 				if (ret) {
 					fprintf(stderr, "read reg file inode failed!\n");
@@ -493,7 +497,12 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				}
 				statistics.files_total_origin_size += inode.i_size;
 				statistics.regular_files++;
-				statistics.files_total_size += erofs_get_file_actual_size(&inode);
+				actual_size = erofs_get_file_actual_size(&inode);
+				if (actual_size < 0) {
+					fprintf(stderr, "error occured getting actual size\n");
+					return -EIO;
+				}
+				statistics.files_total_size += actual_size;
 				break;	
 
 			case EROFS_FT_DIR:
