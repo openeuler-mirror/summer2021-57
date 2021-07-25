@@ -32,7 +32,9 @@ struct statistics {
 	unsigned long files;
 	unsigned long files_total_size;
 	unsigned long files_total_origin_size;
-	
+	unsigned long compress_files;
+	unsigned long uncompress_files;
+
 	unsigned long regular_files;
 	unsigned long dir_files;
 	unsigned long chardev_files;
@@ -302,6 +304,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 	void *compressdata;
 	unsigned long filesize = 0;
 	unsigned int pcluster_size = 4096;
+	unsigned int lcluster_size = 4096;
 
 	inode->extent_isize = vle_compressmeta_capacity(inode->i_size);
 	compressdata = malloc(inode->extent_isize);
@@ -325,7 +328,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 
 	first = (struct z_erofs_vle_decompressed_index *) (compressdata + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
 	unsigned long lcn = 0;
-	unsigned int advise, type;
+	unsigned long last_head_lcn = 0;
 
 	while (lcn < lcn_max) {
 		struct z_erofs_vle_decompressed_index *di = first + lcn;
@@ -338,8 +341,13 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
 		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
-			filesize += pcluster_size;
-			lcn++;
+			if (lcn == lcn_max - 1 && le32_to_cpu(di->di_u.blkaddr) == 0) {
+				lcn++;	
+			} else {
+				last_head_lcn = lcn;
+				filesize += pcluster_size;
+				lcn++;
+			}
 			break;
 		default:
 			DBG_BUGON(1);
@@ -347,17 +355,23 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		}
 	}	
 	
-	struct z_erofs_vle_decompressed_index *last = first + lcn_max - 1;
+	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
 	advise = le16_to_cpu(last->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
 			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
-	if (type == Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD) {
-		last -= le16_to_cpu(last->di_u.delta[0]);
-		advise = le16_to_cpu(last->di_advise);
-		type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
-			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);	
+	
+	switch (type) {
+		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
+			filesize -= pcluster_size - (inode->i_size - last_head_lcn * lcluster_size - le16_to_cpu(last->di_clusterofs));
+			break;
+		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
+			// erofs_off_t offset = blknr_to_addr(last->di_u.blkaddr);
+			// int last_cluster_size = pread64(erofs_devfd, 
+			break;
+		default:
+			return -ENOTSUP;
 	}
-	return inode->i_size;
+	return filesize;
 }
 
 static unsigned long erofs_get_file_actual_size(struct erofs_inode *inode)
@@ -365,9 +379,11 @@ static unsigned long erofs_get_file_actual_size(struct erofs_inode *inode)
 	switch (inode->datalayout) {
 		case EROFS_INODE_FLAT_INLINE:
 		case EROFS_INODE_FLAT_PLAIN:
+			statistics.uncompress_files++;
 			return inode->i_size;
 		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 		case EROFS_INODE_FLAT_COMPRESSION:
+			statistics.compress_files++;
 			return z_erofs_get_file_size(inode);
 	}
 	return -EINVAL;
@@ -478,7 +494,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				statistics.files_total_origin_size += inode.i_size;
 				statistics.regular_files++;
 				statistics.files_total_size += erofs_get_file_actual_size(&inode);
-
 				break;	
 
 			case EROFS_FT_DIR:
@@ -551,6 +566,12 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "Filesystem SOCK Files:		%lu\n", statistics.sock_files);
 	fprintf(stderr, "Filesystem Link Files:		%lu\n", statistics.symlink_files);
 
+	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compress_files);
+	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompress_files);
+
+
+	fprintf(stderr, "Filsystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
 
 	return;
 }
