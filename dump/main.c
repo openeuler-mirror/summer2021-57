@@ -305,7 +305,9 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 	unsigned long filesize = 0;
 	unsigned int pcluster_size = 4096;
 	unsigned int lcluster_size = 4096;
+	erofs_off_t compressed_blocks = 0;
 
+	compressed_blocks = inode->u.i_blocks;
 	inode->extent_isize = vle_compressmeta_capacity(inode->i_size);
 	compressdata = malloc(inode->extent_isize);
 	if (!compressdata) {
@@ -329,6 +331,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 	first = (struct z_erofs_vle_decompressed_index *) (compressdata); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
 	unsigned long lcn = 0;
 	unsigned long last_head_lcn = 0;
+	//fprintf(stderr, "erofs compressed blocks: %lu \n", compressed_blocks);
 	fprintf(stderr, "lcn max: %lu\n", lcn_max);
 	while (lcn < lcn_max) {
 		struct z_erofs_vle_decompressed_index *di = first + lcn;
@@ -337,7 +340,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
 		switch (type) {
 		case Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD:
-			fprintf(stderr, "nonhead lcn: %lu head lcn: %u\n ", lcn, le16_to_cpu(di->di_u.delta[0]));
+			fprintf(stderr, "nonhead lcn: %lu head lcn: %u\n", lcn, le16_to_cpu(di->di_u.delta[0]));
 			lcn += le16_to_cpu(di->di_u.delta[1]) ? le16_to_cpu(di->di_u.delta[1]) : 1;
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
@@ -348,7 +351,8 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 				last_head_lcn = lcn;
 				filesize += pcluster_size;
 			}
-			fprintf(stderr, "head lcn: %lu, blk addr: %u type: %u\n", lcn, le32_to_cpu(di->di_u.blkaddr), type);
+			fprintf(stderr, "head lcn: %lu, blk addr: %u offset: %u type: %u\n", lcn,
+				le32_to_cpu(di->di_u.blkaddr), le16_to_cpu(di->di_clusterofs), type);
 			lcn++;
 			break;
 		default:
@@ -357,7 +361,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		}
 		
 	}	
-	fprintf(stderr, "inode compressed blocks : %u\n", inode->u.i_blocks);
+	fprintf(stderr, "inode compressed blocks: %lu\n\n", compressed_blocks);
 	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
 	advise = le16_to_cpu(last->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
