@@ -5,6 +5,7 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <sys/sysmacros.h>
+#include <lz4.h>
 
 #include "erofs/config.h"
 #include "erofs/inode.h"
@@ -199,6 +200,7 @@ static int erofs_read_inode_from_disk(struct erofs_inode *vi)
 	ifmt = le16_to_cpu(dic->i_format);
 
 	vi->datalayout = erofs_inode_datalayout(ifmt);
+	vi->i_ino[0] = le32_to_cpu(dic->i_ino);
 	if (vi->datalayout >= EROFS_INODE_DATALAYOUT_MAX) {
 		erofs_err("unsupported datalayout %u of nid %llu",
 			  vi->datalayout, vi->nid | 0ULL);
@@ -292,7 +294,38 @@ bogusimode:
 	return -EFSCORRUPTED;
 }
 
-// get compress file actual on-disk size
+
+
+static unsigned long z_erofs_get_last_cluster_size_from_disk(struct z_erofs_vle_decompressed_index *last, int last_original_size)
+{
+
+	int ret;
+	char raw[EROFS_BLKSIZ] = {0};
+	char decompress[EROFS_BLKSIZ * 1000] = {0};
+	//read last extent buffer, decompress and compress to get size
+
+	ret = dev_read(raw, blknr_to_addr(last->di_u.blkaddr), EROFS_BLKSIZ);
+	if (ret < 0) {
+		fprintf(stderr, "dev_read error!\n");
+		return -EIO;
+	}
+
+	ret = LZ4_decompress_safe_partial(raw, decompress, EROFS_BLKSIZ, last_original_size, EROFS_BLKSIZ * 1000);
+	if (ret < 0) {
+		fprintf(stderr, "LZ4 decompress safe error ret: %d\n", ret);
+		return -EIO;
+	}
+
+	int source_size = EROFS_BLKSIZ;
+	ret = LZ4_compress_destSize(decompress, raw, &source_size, EROFS_BLKSIZ * 1000);
+	if (ret <= 0) {
+		fprintf(stderr, "LZ4 compress destsize error ret: %d\n", ret);
+		return -EIO;
+	}
+	return ret;
+}
+
+// get compress file actual on-disk size}
 static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 {
 	int err;
@@ -329,11 +362,15 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 	}
 
 	first = (struct z_erofs_vle_decompressed_index *) (compressdata); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
+	
 	unsigned long lcn = 0;
 	unsigned long last_head_lcn = 0;
+	unsigned long block = 0;
+
 	//fprintf(stderr, "erofs compressed blocks: %lu \n", compressed_blocks);
-	fprintf(stderr, "lcn max: %lu\n", lcn_max);
-	while (lcn < lcn_max) {
+	fprintf(stderr, "inode number: %lu	lcn max: %lu	original size: %lu\n", inode->i_ino[0], lcn_max, inode->i_size);
+	filesize = (compressed_blocks - 1) * pcluster_size;
+	while (lcn < lcn_max) {//&& block < compressed_blocks) {
 		struct z_erofs_vle_decompressed_index *di = first + lcn;
 		advise = le16_to_cpu(di->di_advise);
 		type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &
@@ -345,15 +382,20 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
 		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
-			if (le32_to_cpu(di->di_u.blkaddr) == 0) {
-
-			} else {
+			if (block == compressed_blocks - 1) {
 				last_head_lcn = lcn;
-				filesize += pcluster_size;
 			}
+			// if (le32_to_cpu(di->di_u.blkaddr) == 0) {
+
+			// } else {
+			// 	last_head_lcn = lcn;
+			// 	filesize += pcluster_size;
+			// }
 			fprintf(stderr, "head lcn: %lu, blk addr: %u offset: %u type: %u\n", lcn,
 				le32_to_cpu(di->di_u.blkaddr), le16_to_cpu(di->di_clusterofs), type);
 			lcn++;
+			block++;
+
 			break;
 		default:
 			DBG_BUGON(1);
@@ -361,23 +403,35 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		}
 		
 	}	
-	fprintf(stderr, "inode compressed blocks: %lu\n\n", compressed_blocks);
+	fprintf(stderr, "inode compressed blocks: %lu\n", compressed_blocks);
 	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
 	advise = le16_to_cpu(last->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
 			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
 	
+	int last_block_size = 0;
+
 	switch (type) {
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
-			filesize -= pcluster_size - (inode->i_size - last_head_lcn * lcluster_size - le16_to_cpu(last->di_clusterofs));
+			filesize += (inode->i_size - last_head_lcn * lcluster_size - le16_to_cpu(last->di_clusterofs));
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
 			// erofs_off_t offset = blknr_to_addr(last->di_u.blkaddr);
 			// int last_cluster_size = pread64(erofs_devfd, 
+
+			last_block_size = z_erofs_get_last_cluster_size_from_disk(last, inode->i_size - lcluster_size * last_head_lcn - last->di_clusterofs);
+			if (last_block_size < 0) {
+				fprintf(stderr, "error occurred while get last extent size\n");
+				break;
+			}
+			fprintf(stderr, "last block size: %d\n", last_block_size);
+			filesize += last_block_size;
 			break;
 		default:
 			return -ENOTSUP;
 	}
+
+	fprintf(stderr, "filesize: %lu\n\n", filesize);
 	return filesize;
 }
 
