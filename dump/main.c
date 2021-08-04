@@ -23,7 +23,7 @@ struct dumpcfg {
 	bool print_statistic;
 	bool print_version; 
 
-	int ino;
+	u64 ino;
 };
 static struct dumpcfg dumpcfg;
 
@@ -122,7 +122,8 @@ static void usage(void)
 
 static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
-	int opt, i;
+	int opt;
+	u64 i;
 	while((opt = getopt_long(argc, argv, "sSVi:I:", long_options, NULL)) != -1) {
 		switch (opt) {
 			case 's':
@@ -139,14 +140,14 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 				break;
 			case 'i':
 				// to do
-				i = atoi(optarg);
-				fprintf(stderr, "parse -i %d\n", i);
+				i = atoll(optarg);
+				fprintf(stderr, "parse -i %lu\n", i);
 				dumpcfg.print_inode = true;
 				dumpcfg.ino = i;
 				break;
 			case 'I':
-				i = atoi(optarg);
-				fprintf(stderr, "parse -I %d\n", i);
+				i = atoll(optarg);
+				fprintf(stderr, "parse -I %lu\n", i);
 				dumpcfg.print_inode_phy = true;
 				dumpcfg.ino = i;
 				break;
@@ -471,13 +472,122 @@ static void dumpfs_print_superblock()
 
 }
 
+static erofs_nid_t read_dir_for_ino (erofs_nid_t nid, erofs_nid_t parent_nid, struct erofs_inode *inode)
+{
+	
+	int ret;
+	char buf[EROFS_BLKSIZ];
+	erofs_nid_t target = 0;
+	erofs_off_t offset;
+	fprintf(stderr, "read_dir: %lu\n", nid);
+
+	offset = 0;
+	while (offset < inode->i_size) {
+		erofs_off_t maxsize = min_t(erofs_off_t,
+					inode->i_size - offset, EROFS_BLKSIZ);
+		struct erofs_dirent *de = (void *)buf;
+		struct erofs_dirent *end;
+		unsigned int nameoff;
+
+		ret = erofs_pread(inode, buf, maxsize, offset);
+		if (ret)
+			return ret;
+
+		nameoff = le16_to_cpu(de->nameoff);
+
+		if (nameoff < sizeof(struct erofs_dirent) ||
+		    nameoff >= PAGE_SIZE) {
+			erofs_err("invalid de[0].nameoff %u @ nid %llu",
+				  nameoff, nid | 0ULL);
+			return -EFSCORRUPTED;
+		}
+
+		end = (void *)buf + nameoff;
+		while (de < end) {
+
+			const char *de_name;
+			unsigned int de_namelen;
+
+			nameoff = le16_to_cpu(de->nameoff);
+			de_name = (char *)buf + nameoff;
+
+			/* the last dirent in the block? */
+			if (de + 1 >= end)
+				de_namelen = strnlen(de_name, maxsize - nameoff);
+			else
+				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
+
+			/* a corrupted entry is found */
+			if (nameoff + de_namelen > maxsize ||
+			    de_namelen > EROFS_NAME_LEN) {
+				erofs_err("bogus dirent @ nid %llu", le64_to_cpu(de->nid) | 0ULL);
+				DBG_BUGON(1);
+				return -EFSCORRUPTED;
+			}
+
+			struct erofs_inode child = { .nid = de->nid };
+			ret = erofs_read_inode_from_disk(&child);
+			if (ret < 0) {
+				fprintf(stderr, "read child inode failed\n");
+				return 0;
+			}
+
+			if (child.i_ino[0] == dumpcfg.ino) {
+				char filename[255] = {0};
+				memcpy(filename, de_name, de_namelen);
+				fprintf(stderr, "Filename:		%s\n", filename);
+				return de->nid;
+			}
+			if (de->file_type == EROFS_FT_DIR && de->nid != parent_nid && de->nid != nid) {
+				target = read_dir_for_ino(de->nid, nid, &child);
+				if (target > 0) {
+					memcpy(inode, &child, sizeof(struct erofs_inode));
+					return target;
+				}
+			}
+			++de;
+		}
+		offset += maxsize;
+	}
+	return 0;
+}
 static void dumpfs_print_inode()
 {
+	erofs_nid_t nid = sbi.root_nid;
+	struct erofs_inode inode = {.nid = nid};
+	int err = 0;
+
+	fprintf(stderr, "Inode %lu info: \n", dumpcfg.ino);
+
+	err = erofs_read_inode_from_disk(&inode);
+	if (err < 0) {
+		fprintf(stderr, "get root inode failed!\n");
+		return;
+	}
+	if (dumpcfg.ino != 0) 
+		nid = read_dir_for_ino(sbi.root_nid, sbi.root_nid, &inode);
+	if (nid == 0) {
+		fprintf(stderr, "read inode failed\n");
+		return;
+	}
+
+	fprintf(stderr, "File size:		%lu\n", inode.i_size);
+	fprintf(stderr, "File nid:		%lu\n", inode.nid);
+	
+
+	return;
 
 }
 
 static void dumpfs_print_inode_phy()
 {
+	int err = 0;
+	//struct erofs_inode inode = { .i_ino[0] = dumpcfg.ino };
+
+	if (err < 0) {
+		fprintf(stderr, "read inode failed\n");
+		return;
+	}
 
 }
 // file num、file size、file type
@@ -533,7 +643,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 
 			/* a corrupted entry is found */
 			if (nameoff + de_namelen > maxsize ||
-			    de_namelen > EROFS_NAME_LEN) {
+				de_namelen > EROFS_NAME_LEN) {
 				erofs_err("bogus dirent @ nid %llu", le64_to_cpu(de->nid) | 0ULL);
 				DBG_BUGON(1);
 				return -EFSCORRUPTED;
@@ -637,7 +747,7 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompress_files);
 
 
-	fprintf(stderr, "Filsystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
 	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
 
 	return;
