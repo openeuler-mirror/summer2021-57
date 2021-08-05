@@ -479,7 +479,7 @@ static erofs_nid_t read_dir_for_ino (erofs_nid_t nid, erofs_nid_t parent_nid, st
 	char buf[EROFS_BLKSIZ];
 	erofs_nid_t target = 0;
 	erofs_off_t offset;
-	fprintf(stderr, "read_dir: %lu\n", nid);
+	//fprintf(stderr, "read_dir: %lu\n", nid);
 
 	offset = 0;
 	while (offset < inode->i_size) {
@@ -663,7 +663,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 	char buf[EROFS_BLKSIZ];
 	erofs_off_t offset;
 	
-	fprintf(stderr, "read_dir: %lu\n", nid);
+	//fprintf(stderr, "read_dir: %lu\n", nid);
 
 	ret = erofs_read_inode_from_disk(&vi);
 	if (ret)
