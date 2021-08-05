@@ -570,7 +570,17 @@ static void dumpfs_print_inode()
 		fprintf(stderr, "read inode failed\n");
 		return;
 	}
+	
+	inode.nid = nid;
+	err = erofs_read_inode_from_disk(&inode);
+	if (err < 0) {
+		fprintf(stderr, "error occured\n");
+		return;
+	}
 
+	fprintf(stderr, "nid:			%lu\n", nid);
+
+	fprintf(stderr, "File inode:		%lu\n", inode.i_ino[0]);
 	fprintf(stderr, "File size:		%lu\n", inode.i_size);
 	fprintf(stderr, "File nid:		%lu\n", inode.nid);
 	
@@ -582,13 +592,68 @@ static void dumpfs_print_inode()
 static void dumpfs_print_inode_phy()
 {
 	int err = 0;
+	erofs_nid_t nid = sbi.root_nid;
+	struct erofs_inode inode = {.nid = nid};
 	//struct erofs_inode inode = { .i_ino[0] = dumpcfg.ino };
+	fprintf(stderr, "Inode %lu on-disk info: \n", dumpcfg.ino);
 
+	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
+		fprintf(stderr, "get root inode failed!\n");
+		return;
+	}
+	if (dumpcfg.ino != 0) 
+		nid = read_dir_for_ino(sbi.root_nid, sbi.root_nid, &inode);
+	if (nid == 0) {
 		fprintf(stderr, "read inode failed\n");
 		return;
 	}
 
+	inode.nid = nid;
+	err = erofs_read_inode_from_disk(&inode);
+	if (err < 0) {
+		fprintf(stderr, "error occured\n");
+		return;
+	}
+
+	const erofs_off_t ibase = iloc(inode.nid);
+	const erofs_off_t pos = Z_EROFS_VLE_LEGACY_INDEX_ALIGN(ibase + inode.inode_isize + inode.xattr_isize);
+	struct z_erofs_vle_decompressed_index *first;
+	erofs_blk_t blocks = inode.u.i_blocks;
+	erofs_blk_t start = 0;
+	erofs_blk_t end = 0;
+	void *compressdata;
+	switch (inode.datalayout) {
+	case EROFS_INODE_FLAT_INLINE:
+	case EROFS_INODE_FLAT_PLAIN:
+		start = inode.u.i_blkaddr;
+		end = start - 1 + BLK_ROUND_UP(inode.i_size);
+		fprintf(stderr, "Plain Block Address:		%u - %u\n", start, end);
+		break;
+
+	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
+	case EROFS_INODE_FLAT_COMPRESSION:
+		
+		inode.extent_isize = vle_compressmeta_capacity(inode.i_size);
+		compressdata = malloc(inode.extent_isize);
+		if (!compressdata) {
+			fprintf(stderr, "malloc failed!\n");
+			return;
+		}
+		
+		err = dev_read(compressdata, pos, sizeof(struct z_erofs_vle_decompressed_index));
+		if (err < 0) {
+			fprintf(stderr, "read compressmeta failed!\n");
+			return;
+		}
+
+		first = compressdata;
+		start = first->di_u.blkaddr;
+		end = start - 1 + blocks;
+		fprintf(stderr, "Compressed Block Address:		%u - %u\n", start, end);
+		break;
+	}
+	return;
 }
 // file num、file size、file type
 static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
