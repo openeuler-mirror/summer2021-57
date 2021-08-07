@@ -737,7 +737,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				DBG_BUGON(1);
 				return -EFSCORRUPTED;
 			}
-			statistics.files++;
+			if (de->nid != nid && de->nid != parent_nid)
+				statistics.files++;
 
 			unsigned long actual_size = 0;
 			switch (de->file_type) {
