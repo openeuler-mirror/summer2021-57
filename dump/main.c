@@ -112,8 +112,14 @@ static int z_erofs_fill_inode_lazy(struct erofs_inode *vi)
 static void usage(void)
 {
 	// TODO
-	fputs("usage: [options] erofs-image \n"
-	" waiting to be done...	\n", stderr);
+	fputs("usage: [options] erofs-image \n\n"
+	"Dump erofs layout from erofs-image, and [options] are:\n"
+	      " -s            print information about superblock\n"
+	      " -S                print statistic information of the erofs-image\n"
+	      " -i #                print target # inode info\n"
+	      " -I #          print target # inode on-disk info\n"
+	      " -V                print dump.erofs version info\n"
+	      " -h/--help             display this help and exit\n", stderr);
 }
 
 //static void parse_extended_opts(const char *opts)
@@ -125,7 +131,7 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
 	int opt;
 	u64 i;
-	while((opt = getopt_long(argc, argv, "sSVi:I:", long_options, NULL)) != -1) {
+	while((opt = getopt_long(argc, argv, "sSVi:I:h", long_options, NULL)) != -1) {
 		switch (opt) {
 			case 's':
 				dumpcfg.print_superblock = true;
@@ -152,7 +158,7 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 				dumpcfg.print_inode_phy = true;
 				dumpcfg.ino = i;
 				break;
-
+			case 'h':
 			case 1:
 				// long option --help 
 				usage();
