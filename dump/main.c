@@ -118,10 +118,16 @@ static void usage(void)
 	      " -S                print statistic information of the erofs-image\n"
 	      " -i #                print target # inode info\n"
 	      " -I #          print target # inode on-disk info\n"
-	      " -V                print dump.erofs version info\n"
+	      " -v/-V                print dump.erofs version info\n"
 	      " -h/--help             display this help and exit\n", stderr);
 }
-
+static void dumpfs_print_version()
+{
+	// TODO
+	// fprintf(stderr, "VERSION INFO\n");
+	// print version info
+	fprintf(stderr, "dump.erofs %s\n", cfg.c_version);
+}
 //static void parse_extended_opts(const char *opts)
 //{
 //	// TODO
@@ -131,7 +137,7 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
 	int opt;
 	u64 i;
-	while((opt = getopt_long(argc, argv, "sSVi:I:h", long_options, NULL)) != -1) {
+	while((opt = getopt_long(argc, argv, "sSvVi:I:h", long_options, NULL)) != -1) {
 		switch (opt) {
 			case 's':
 				dumpcfg.print_superblock = true;
@@ -141,9 +147,12 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 				dumpcfg.print_statistic = true;
 				// fprintf(stderr, "parse -S \n");
 				break;
+			case 'v':
 			case 'V':
-				dumpcfg.print_version = true;
+				// dumpcfg.print_version = true;
 				// fprintf(stderr, "parse -V \n");
+				dumpfs_print_version();
+				exit(0);
 				break;
 			case 'i':
 				// to do
@@ -459,12 +468,7 @@ static unsigned long erofs_get_file_actual_size(struct erofs_inode *inode)
 }
 
 
-static void dumpfs_print_version()
-{
-	// TODO
-	fprintf(stderr, "TODO\n");
-	fprintf(stderr, "VERSION INFO\n");
-}
+
 
 static void dumpfs_print_superblock()
 {
@@ -836,10 +840,10 @@ int main(int argc, char** argv)
 	// init config
 	erofs_init_configure();
 
-	// print version info
-	// fprintf(stderr, "%s %s\n", basename(argv[0]), cfg.c_version);
+	
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
+		fprintf(stderr, "parse config failed\n");
 		if (err == -EINVAL)
 			usage();
 		return 1;
@@ -859,10 +863,6 @@ int main(int argc, char** argv)
 		fprintf(stderr, "failed to read erofs super block\n");
 		return 1;
 	}	
-
-	if (dumpcfg.print_version) {
-		dumpfs_print_version();
-	}
 
 	if (dumpcfg.print_superblock) {
 		dumpfs_print_superblock();
