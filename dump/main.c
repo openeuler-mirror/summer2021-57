@@ -129,26 +129,26 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 		switch (opt) {
 			case 's':
 				dumpcfg.print_superblock = true;
-				fprintf(stderr, "parse -s \n");
+				// fprintf(stderr, "parse -s \n");
 				break;
 			case 'S':
 				dumpcfg.print_statistic = true;
-				fprintf(stderr, "parse -S \n");
+				// fprintf(stderr, "parse -S \n");
 				break;
 			case 'V':
 				dumpcfg.print_version = true;
-				fprintf(stderr, "parse -V \n");
+				// fprintf(stderr, "parse -V \n");
 				break;
 			case 'i':
 				// to do
 				i = atoll(optarg);
-				fprintf(stderr, "parse -i %lu\n", i);
+				// fprintf(stderr, "parse -i %lu\n", i);
 				dumpcfg.print_inode = true;
 				dumpcfg.ino = i;
 				break;
 			case 'I':
 				i = atoll(optarg);
-				fprintf(stderr, "parse -I %lu\n", i);
+				// fprintf(stderr, "parse -I %lu\n", i);
 				dumpcfg.print_inode_phy = true;
 				dumpcfg.ino = i;
 				break;
@@ -379,7 +379,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
 		switch (type) {
 		case Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD:
-			fprintf(stderr, "nonhead lcn: %lu head lcn: %u\n", lcn, le16_to_cpu(di->di_u.delta[0]));
+			// fprintf(stderr, "nonhead lcn: %lu head lcn: %u\n", lcn, le16_to_cpu(di->di_u.delta[0]));
 			lcn += le16_to_cpu(di->di_u.delta[1]) ? le16_to_cpu(di->di_u.delta[1]) : 1;
 			break;
 		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
@@ -393,8 +393,8 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 			// 	last_head_lcn = lcn;
 			// 	filesize += pcluster_size;
 			// }
-			fprintf(stderr, "head lcn: %lu, blk addr: %u offset: %u type: %u\n", lcn,
-				le32_to_cpu(di->di_u.blkaddr), le16_to_cpu(di->di_clusterofs), type);
+			// fprintf(stderr, "head lcn: %lu, blk addr: %u offset: %u type: %u\n", lcn,
+			//	le32_to_cpu(di->di_u.blkaddr), le16_to_cpu(di->di_clusterofs), type);
 			lcn++;
 			block++;
 
@@ -405,7 +405,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		}
 		
 	}	
-	fprintf(stderr, "inode compressed blocks: %lu\n", compressed_blocks);
+	// fprintf(stderr, "inode compressed blocks: %lu\n", compressed_blocks);
 	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
 	advise = le16_to_cpu(last->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
@@ -728,7 +728,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				break;	
 
 			case EROFS_FT_REG_FILE:
-				
 				ret = erofs_read_inode_from_disk(&inode);
 				if (ret) {
 					fprintf(stderr, "read reg file inode failed!\n");
@@ -745,8 +744,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				break;	
 
 			case EROFS_FT_DIR:
-				statistics.dir_files++;
-				if (de->nid != nid && de->nid != parent_nid) {
+				if (de->nid != nid && de->nid != parent_nid) {	
+					statistics.dir_files++;
 					ret = read_dir(de->nid, nid);
 					if (ret) {
 						fprintf(stderr, "parse dir nid%llu error occurred\n", de->nid);
@@ -832,7 +831,7 @@ int main(int argc, char** argv)
 	erofs_init_configure();
 
 	// print version info
-	fprintf(stderr, "%s %s\n", basename(argv[0]), cfg.c_version);
+	// fprintf(stderr, "%s %s\n", basename(argv[0]), cfg.c_version);
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
 		if (err == -EINVAL)
@@ -869,9 +868,6 @@ int main(int argc, char** argv)
 		fprintf(stderr, "failed to look up root inode");
 		return 1;
 	}
-
-	fprintf(stderr, "root inode nid:	%lu\n", root_inode->nid);
-	fprintf(stderr, "root inode size:	%lu\n", root_inode->i_size);
 
 	if (dumpcfg.print_inode)
 		dumpfs_print_inode();
