@@ -474,13 +474,21 @@ static void dumpfs_print_superblock()
 {
 	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
 	fprintf(stderr, "Filesystem blocks: 		%lu\n", sbi.blocks);
-	fprintf(stderr, "Filesystem meta address:	0x%04X\n", sbi.meta_blkaddr);
-	fprintf(stderr, "Filesystem xattr address:	0x%04X\n", sbi.xattr_blkaddr);
+
+	fprintf(stderr, "Filesystem meta block:		%u\n", sbi.meta_blkaddr);
+	fprintf(stderr, "Filesystem xattr block:		%u\n", sbi.xattr_blkaddr);
 	fprintf(stderr, "Filesystem root nid:		%ld\n", sbi.root_nid);
+
+	time_t t = sbi.build_time;
+	fprintf(stderr, "Filesystem created:		%s", ctime(&t));
+
 	fprintf(stderr, "Filesystem inodes count:	%ld\n", sbi.inos);
-
-	//fprintf(stderr, "Filesystem created:		%s", ctime(sbi.build_time));
-
+	fprintf(stderr, "Filesystem lz4 max distanve:	%d\n", sbi.lz4_max_distance);
+	
+	fprintf(stderr, "Filesystem uuid:		");
+	for (int i = 0; i < 16; i++)
+		fprintf(stderr, "%02x", sbi.uuid[i]);
+	fprintf(stderr, "\n");
 }
 
 // static erofs_nid_t read_dir_for_ino (erofs_nid_t nid, erofs_nid_t parent_nid, struct erofs_inode *inode)
