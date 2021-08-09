@@ -452,7 +452,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 	return filesize;
 }
 
-static unsigned long erofs_get_file_actual_size(struct erofs_inode *inode)
+static erofs_off_t erofs_get_file_actual_size(struct erofs_inode *inode)
 {
 	switch (inode->datalayout) {
 		case EROFS_INODE_FLAT_INLINE:
@@ -605,7 +605,31 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "File inode:		%lu\n", inode.i_ino[0]);
 	fprintf(stderr, "File size:		%lu\n", inode.i_size);
 	fprintf(stderr, "File nid:		%lu\n", inode.nid);
-	
+
+	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
+	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
+
+	erofs_off_t size = erofs_get_file_actual_size(&inode);
+	fprintf(stderr, "File Original size:	%lu\n"
+			"File On-Disk size:	%lu\n", inode.i_size, size);
+
+	switch (inode.datalayout)
+	{
+	case EROFS_INODE_FLAT_PLAIN:
+		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_PLAIN\n");
+		break;
+	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
+		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_COMPRESSION_LEGACY\n");
+		break;
+	case EROFS_INODE_FLAT_INLINE:
+		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_INLINE\n");
+		break;
+	case EROFS_INODE_FLAT_COMPRESSION:
+		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_COMPRESSION\n");
+		break;
+	default:
+		break;
+	}
 
 	return;
 
@@ -740,7 +764,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			if (de->nid != nid && de->nid != parent_nid)
 				statistics.files++;
 
-			unsigned long actual_size = 0;
+			erofs_off_t actual_size = 0;
 			switch (de->file_type) {
 			
 			case EROFS_FT_UNKNOWN:
