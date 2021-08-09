@@ -609,6 +609,34 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
 	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
 
+	//get file type
+	switch (inode.i_mode & S_IFMT) {
+		case S_IFREG:
+			fprintf(stderr, "File is Regular File\n");
+			break;
+		case S_IFDIR:
+			fprintf(stderr, "File is Directory File\n");
+			break;
+		case S_IFLNK:
+			fprintf(stderr, "File is Link File\n");
+			break;
+		case S_IFCHR:
+			fprintf(stderr, "File is CharDev File\n");
+			break;
+		case S_IFBLK:
+			fprintf(stderr, "File is BLKDev File\n");
+			break;
+		case S_IFIFO:
+			fprintf(stderr, "File is FIFO File\n");
+			break;
+		case S_IFSOCK:
+			fprintf(stderr, "File is Sock File\n");
+			break;
+		default:
+			break;
+		}
+
+
 	erofs_off_t size = erofs_get_file_actual_size(&inode);
 	fprintf(stderr, "File Original size:	%lu\n"
 			"File On-Disk size:	%lu\n", inode.i_size, size);
@@ -630,6 +658,13 @@ static void dumpfs_print_inode()
 	default:
 		break;
 	}
+
+	time_t t = inode.i_ctime;
+	fprintf(stderr, "File create time:	%s\n", ctime(&t));
+	
+	fprintf(stderr, "File uid:		%u\n", inode.i_uid);
+	fprintf(stderr, "File gid:		%u\n", inode.i_gid);
+	fprintf(stderr, "File hard-link count:	%u\n", inode.i_nlink);
 
 	return;
 
