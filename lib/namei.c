@@ -15,7 +15,7 @@
 #include "erofs/print.h"
 #include "erofs/io.h"
 
-static dev_t erofs_new_decode_dev(u32 dev)
+dev_t erofs_new_decode_dev(u32 dev)
 {
 	const unsigned int major = (dev & 0xfff00) >> 8;
 	const unsigned int minor = (dev & 0xff) | ((dev >> 12) & 0xfff00);
@@ -23,7 +23,7 @@ static dev_t erofs_new_decode_dev(u32 dev)
 	return makedev(major, minor);
 }
 
-static int erofs_read_inode_from_disk(struct erofs_inode *vi)
+int erofs_read_inode_from_disk(struct erofs_inode *vi)
 {
 	int ret, ifmt;
 	char buf[sizeof(struct erofs_inode_extended)];
