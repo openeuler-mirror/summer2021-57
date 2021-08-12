@@ -280,6 +280,8 @@ AC_CONFIG_FILES([Makefile
 		 man/Makefile
 		 lib/Makefile
 		 mkfs/Makefile
+     dump/Makefile
 		 fuse/Makefile])
+
 AC_OUTPUT
 
