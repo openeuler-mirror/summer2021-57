@@ -34,6 +34,7 @@ struct statistics {
 	unsigned long files;
 	unsigned long files_total_size;
 	unsigned long files_total_origin_size;
+	double compress_rate;
 	unsigned long compress_files;
 	unsigned long uncompress_files;
 
@@ -640,6 +641,7 @@ static void dumpfs_print_inode()
 	erofs_off_t size = erofs_get_file_actual_size(&inode);
 	fprintf(stderr, "File Original size:	%lu\n"
 			"File On-Disk size:	%lu\n", inode.i_size, size);
+	fprintf(stderr, "File compress rate:	%.2f%%\n", (double)(100 * size) / (double)(inode.i_size));
 
 	switch (inode.datalayout)
 	{
@@ -819,6 +821,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					return -EIO;
 				}
 				statistics.files_total_size += actual_size;
+				
 				break;	
 
 			case EROFS_FT_DIR:
@@ -897,6 +900,11 @@ static void dumpfs_print_statistic()
 
 	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
 	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
+
+	statistics.compress_rate = (double)(100 * statistics.files_total_size) / (double)(statistics.files_total_origin_size);
+
+	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
+	
 
 	return;
 }
