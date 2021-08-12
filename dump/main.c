@@ -709,8 +709,12 @@ static void dumpfs_print_inode_phy()
 	switch (inode.datalayout) {
 	case EROFS_INODE_FLAT_INLINE:
 	case EROFS_INODE_FLAT_PLAIN:
-		start = inode.u.i_blkaddr + 1;
-		end = start + BLK_ROUND_UP(inode.i_size) - 1;
+		if (inode.u.i_blkaddr == NULL_ADDR) 
+			start = end = erofs_blknr(pos);
+		else {
+			start = inode.u.i_blkaddr;
+			end = start + BLK_ROUND_UP(inode.i_size) - 1;
+		}
 		fprintf(stderr, "Inode ino:	%lu\n", inode.i_ino[0]);
 		fprintf(stderr, "Filesize:	%lu\n", inode.i_size);
 		fprintf(stderr, "Plain Block Address:		%u - %u\n", start, end);
