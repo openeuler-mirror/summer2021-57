@@ -764,7 +764,22 @@ enum {
 	FILELESS1M,
 	FILEBIGGER,
 };
-
+static char *filesize_types[] = {
+	"  0KB - 4KB",
+	"  4KB - 8KB",
+	"  8KB - 12KB",
+	" 12KB - 16KB",
+	" 16KB - 20KB",
+	" 20KB - 24KB",
+	" 24KB - 28KB",
+	" 28KB - 32KB",
+	" 32KB - 64KB",
+	" 64KB - 128KB",
+	"128KB - 256KB",
+	"256KB - 512KB",
+	"512KB - 1MB",
+	"      > 1MB"
+};
 static unsigned determine_file_category_by_size(unsigned long filesize) {
 	if (filesize >= 1024 * 1024)
 		return FILEBIGGER;
@@ -948,6 +963,12 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
 	
 
+	fprintf(stderr, "Filesysten filesize distribution:\n");
+	fprintf(stderr, "			before	after\n");
+	for (int i = 0; i < 14; i++) {
+		fprintf(stderr, "	%s	%u	%u\n", filesize_types[i], statistics.file_count_categorized_by_original_size[i], statistics.file_count_categorized_by_compressed_size[i]);
+	
+	}
 	return;
 }
 
