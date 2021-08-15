@@ -48,6 +48,10 @@ struct statistics {
 
 	unsigned int partial_used_block;
 	unsigned long wasted_fragment_bytes;
+
+	// 0 - 4, 4 - 8, ..., 28 - 32 | 32 - 64, 64 - 128, ..., 512 - 1024 | > 1024
+	unsigned int file_count_categorized_by_original_size[8 + 5 + 1];
+	unsigned int file_count_categorized_by_compressed_size[8 + 5 + 1];
 };
 static struct statistics statistics;
 
@@ -744,6 +748,38 @@ static void dumpfs_print_inode_phy()
 	}
 	return;
 }
+enum {
+	FILELESS4K = 0,
+	FILELESS8K,
+	FILELESS12K,
+	FILELESS16K,
+	FILELESS20K,
+	FILELESS24K,
+	FILELESS28K,
+	FILELESS32K,
+	FILELESS64K,
+	FILELESS128K,
+	FILELESS256K,
+	FILELESS512K,
+	FILELESS1M,
+	FILEBIGGER,
+};
+
+static unsigned determine_file_category_by_size(unsigned long filesize) {
+	if (filesize >= 1024 * 1024)
+		return FILEBIGGER;
+	else if (filesize >= 32 * 1024) {
+		unsigned fs = filesize, count = 0;
+		while (fs >= 64 * 1024) {
+			fs /= 2;
+			count++;
+		}
+		return FILELESS64K + count;
+	}
+	else 
+		return FILELESS4K + filesize / (4 * 1024);
+
+}
 // file num、file size、file type
 static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
 {
@@ -826,6 +862,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				}
 				statistics.files_total_size += actual_size;
 				
+				statistics.file_count_categorized_by_original_size[determine_file_category_by_size(inode.i_size)]++;
+				statistics.file_count_categorized_by_compressed_size[determine_file_category_by_size(actual_size)]++;
 				break;	
 
 			case EROFS_FT_DIR:
