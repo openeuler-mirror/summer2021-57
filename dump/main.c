@@ -576,11 +576,97 @@ static void dumpfs_print_superblock()
 // 	return 0;
 // }
 
+static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned mark)
+{
+	if (target == sbi.root_nid) {
+		memcpy(path, "/", 2);
+		return 0;
+	}
+	
+	int err;
+	struct erofs_inode inode = {.nid = nid};
+	unsigned long offset;
+	char buf[EROFS_BLKSIZ];
+	err = erofs_read_inode_from_disk(&inode);
+
+	if (err) {
+		fprintf(stderr, "read inode error\n");
+		return err;
+	}
+
+ 	offset = 0;
+ 	while (offset < inode.i_size) {
+ 		erofs_off_t maxsize = min_t(erofs_off_t,
+ 					inode.i_size - offset, EROFS_BLKSIZ);
+ 		struct erofs_dirent *de = (void *)buf;
+ 		struct erofs_dirent *end;
+ 		unsigned int nameoff;
+ 
+ 		err = erofs_pread(&inode, buf, maxsize, offset);
+ 		if (err)
+ 			return err;
+ 
+ 		nameoff = le16_to_cpu(de->nameoff);
+ 
+ 		if (nameoff < sizeof(struct erofs_dirent) ||
+ 		    nameoff >= PAGE_SIZE) {
+ 			erofs_err("invalid de[0].nameoff %u @ nid %llu",
+ 				  nameoff, nid | 0ULL);
+ 			return -EFSCORRUPTED;
+ 		}
+ 
+ 		end = (void *)buf + nameoff;
+ 		while (de < end) {
+ 
+ 			const char *de_name;
+ 			unsigned int de_namelen;
+ 
+ 			nameoff = le16_to_cpu(de->nameoff);
+ 			de_name = (char *)buf + nameoff;
+ 
+ 			/* the last dirent in the block? */
+ 			if (de + 1 >= end)
+ 				de_namelen = strnlen(de_name, maxsize - nameoff);
+ 			else
+ 				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
+ 
+ 			/* a corrupted entry is found */
+ 			if (nameoff + de_namelen > maxsize ||
+ 			    de_namelen > EROFS_NAME_LEN) {
+ 				erofs_err("bogus dirent @ nid %llu", le64_to_cpu(de->nid) | 0ULL);
+ 				DBG_BUGON(1);
+ 				return -EFSCORRUPTED;
+ 			}
+ 
+			if (de->nid == target) {
+				memcpy(path + mark, de_name, de_namelen);
+				return 0;
+			}
+
+ 			if (de->file_type == EROFS_FT_DIR && de->nid != parent_nid && de->nid != nid) {
+				int found;
+				memcpy(path + mark, de_name, de_namelen);
+				path[mark + de_namelen] = '/';
+				// fprintf(stderr, "%s\n", path);
+ 				found = erofs_get_path_by_nid(de->nid, nid, target, path, mark + de_namelen + 1);
+				if (!found) {
+					return found;
+				}
+				memset(path + mark, 0, de_namelen + 1);
+ 			}
+ 			++de;
+ 		}
+ 		offset += maxsize;
+ 	}
+ 	return 1;
+ 
+}
 
 static void dumpfs_print_inode()
 {
 	erofs_nid_t nid = dumpcfg.ino;
 	struct erofs_inode inode = {.nid = nid};
+	char path[PATH_MAX + 1] = {0};
 	int err = 0;
 
 	fprintf(stderr, "Inode %lu info: \n", dumpcfg.ino);
@@ -672,6 +758,12 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "File gid:		%u\n", inode.i_gid);
 	fprintf(stderr, "File hard-link count:	%u\n", inode.i_nlink);
 
+	path[0] = '/';
+	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 1);
+	if (!found)
+		fprintf(stderr, "File Path:		%s\n", path);
+	else
+		fprintf(stderr, "File Path Not Found\n");
 	return;
 
 }
