@@ -578,8 +578,8 @@ static void dumpfs_print_superblock()
 
 static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned mark)
 {
+	path[mark++] = '/';
 	if (target == sbi.root_nid) {
-		memcpy(path, "/", 2);
 		return 0;
 	}
 	
@@ -646,13 +646,12 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  			if (de->file_type == EROFS_FT_DIR && de->nid != parent_nid && de->nid != nid) {
 				int found;
 				memcpy(path + mark, de_name, de_namelen);
-				path[mark + de_namelen] = '/';
 				// fprintf(stderr, "%s\n", path);
- 				found = erofs_get_path_by_nid(de->nid, nid, target, path, mark + de_namelen + 1);
+ 				found = erofs_get_path_by_nid(de->nid, nid, target, path, mark + de_namelen);
 				if (!found) {
 					return found;
 				}
-				memset(path + mark, 0, de_namelen + 1);
+				memset(path + mark, 0, de_namelen);
  			}
  			++de;
  		}
@@ -758,8 +757,7 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "File gid:		%u\n", inode.i_gid);
 	fprintf(stderr, "File hard-link count:	%u\n", inode.i_nlink);
 
-	path[0] = '/';
-	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 1);
+	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
 	if (!found)
 		fprintf(stderr, "File Path:		%s\n", path);
 	else
@@ -773,6 +771,7 @@ static void dumpfs_print_inode_phy()
 	int err = 0;
 	erofs_nid_t nid = dumpcfg.ino;
 	struct erofs_inode inode = {.nid = nid};
+	char path[PATH_MAX + 1] = {0};
 	//struct erofs_inode inode = { .i_ino[0] = dumpcfg.ino };
 	fprintf(stderr, "Inode %lu on-disk info: \n", dumpcfg.ino);
 
@@ -838,6 +837,12 @@ static void dumpfs_print_inode_phy()
 		fprintf(stderr, "Compressed Block Address:		%u - %u\n", start, end);
 		break;
 	}
+
+	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
+	if (!found) {
+		fprintf(stderr, "File Path:		%s\n", path);
+	}
+
 	return;
 }
 enum {
