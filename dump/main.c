@@ -1064,10 +1064,14 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
 	
 
-	fprintf(stderr, "Filesysten filesize distribution: @:10000 #:1000 *:100 =:10 -:1\n");
+	fprintf(stderr, "Filesysten filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
 	char units[] = "@#*=-";
+	char *symbols = NULL; 
+
+
 	unsigned original_counts[5] = {0};
-	unsigned compressed_counts[5] = {0};
+	//unsigned compressed_counts[5] = {0};
+	fprintf(stderr, "Original fileszie distribution: \n");
 	for (int i = 0; i < 14; i++) {
 
 		original_counts[0] = statistics.file_count_categorized_by_original_size[i] / 10000;
@@ -1076,16 +1080,16 @@ static void dumpfs_print_statistic()
 		original_counts[3] = (statistics.file_count_categorized_by_original_size[i] % 100) / 10;
 		original_counts[4] = statistics.file_count_categorized_by_original_size[i] % 10;
 
-		compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
-		compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
-		compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
-		compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
-		compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
+		// compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
+		// compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
+		// compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
+		// compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
+		// compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
 
 
-		fprintf(stderr, "%s\n", filesize_types[i]);
-		fprintf(stderr,"	before:	");
-		char *symbols = NULL; 
+		fprintf(stderr, "%s:	", filesize_types[i]);
+		//fprintf(stderr,"	before:	");
+		
 		for (int i = 0; i < 5; i++) {
 			if (original_counts[i]) {
 				symbols = malloc(original_counts[i] + 1);
@@ -1095,9 +1099,33 @@ static void dumpfs_print_statistic()
 				free(symbols);
 			}
 		}
-		fprintf(stderr, "	%u\n", statistics.file_count_categorized_by_original_size[i]);
+		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_original_size[i]);
 
-		fprintf(stderr, "	after:	");
+		// fprintf(stderr, "	after:	");
+		// for (int i = 0; i < 5; i++) {
+		// 	if (compressed_counts[i]) {
+		// 		symbols = malloc(compressed_counts[i] + 1);
+		// 		memset(symbols, units[i], compressed_counts[i]);
+		// 		symbols[compressed_counts[i]] = 0;
+		// 		fprintf(stderr, symbols);
+		// 		free(symbols);
+		// 	}	
+		// }
+		// fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);
+
+	}
+
+	unsigned compressed_counts[5] = {0};
+	fprintf(stderr, "Compressed fileszie distribution: \n");
+	for (int i = 0; i < 14; i++) {
+
+		compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
+		compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
+		compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
+		compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
+		compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
+
+		fprintf(stderr, "%s:	", filesize_types[i]);
 		for (int i = 0; i < 5; i++) {
 			if (compressed_counts[i]) {
 				symbols = malloc(compressed_counts[i] + 1);
@@ -1107,8 +1135,7 @@ static void dumpfs_print_statistic()
 				free(symbols);
 			}	
 		}
-		fprintf(stderr, "	%u\n", statistics.file_count_categorized_by_compressed_size[i]);
-
+		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);	
 	}
 	return;
 }
