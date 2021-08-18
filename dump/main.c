@@ -52,6 +52,8 @@ struct statistics {
 	// 0 - 4, 4 - 8, ..., 28 - 32 | 32 - 64, 64 - 128, ..., 512 - 1024 | > 1024
 	unsigned int file_count_categorized_by_original_size[8 + 5 + 1];
 	unsigned int file_count_categorized_by_compressed_size[8 + 5 + 1];
+
+	unsigned int file_count_categorized_by_postfix[3];
 };
 static struct statistics statistics;
 
@@ -894,6 +896,32 @@ static unsigned determine_file_category_by_size(unsigned long filesize) {
 		return FILELESS4K + filesize / (4 * 1024);
 
 }
+
+enum {
+	TXTFILETYPE = 0,
+	MP4FILETYPR,
+	OTHERFILETYPE,
+};
+
+static char *file_types[] = {
+	".txt",
+	".mp4",
+	"others"
+};
+static unsigned determine_file_category_by_postfix(const char *filename) {
+	
+	char *postfix = strrchr(filename, '.');
+	int type = TXTFILETYPE;
+	if (postfix == NULL)
+		return OTHERFILETYPE;
+	while (type < OTHERFILETYPE) {
+		if (strcmp(postfix, file_types[type]) == 0)
+			break;
+		type ++;	
+	}
+	return type;
+}
+
 // file num、file size、file type
 static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
 {
@@ -978,6 +1006,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				
 				statistics.file_count_categorized_by_original_size[determine_file_category_by_size(inode.i_size)]++;
 				statistics.file_count_categorized_by_compressed_size[determine_file_category_by_size(actual_size)]++;
+				statistics.file_count_categorized_by_postfix[determine_file_category_by_postfix(de_name)]++;
 				break;	
 
 			case EROFS_FT_DIR:
@@ -1064,14 +1093,14 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
 	
 
-	fprintf(stderr, "Filesysten filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
+	fprintf(stderr, "Filesystem filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
 	char units[] = "@#*=-";
 	char *symbols = NULL; 
 
 
 	unsigned original_counts[5] = {0};
 	//unsigned compressed_counts[5] = {0};
-	fprintf(stderr, "Original fileszie distribution: \n");
+	fprintf(stderr, "Original filesize distribution: \n");
 	for (int i = 0; i < 14; i++) {
 
 		original_counts[0] = statistics.file_count_categorized_by_original_size[i] / 10000;
@@ -1117,7 +1146,7 @@ static void dumpfs_print_statistic()
 
 	unsigned compressed_counts[5] = {0};
 	fprintf(stderr, "Compressed fileszie distribution: \n");
-	for (int i = 0; i < 14; i++) {
+	for (int i = 0; i <= FILEBIGGER; i++) {
 
 		compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
 		compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
@@ -1136,6 +1165,28 @@ static void dumpfs_print_statistic()
 			}	
 		}
 		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);	
+	}
+
+	fprintf(stderr, "File type distribution: @:10000, #:1000, *:100, =:10, -:1\n");
+	unsigned counts[5] = {0};
+	for (int i = 0; i <= OTHERFILETYPE; i++) {
+		counts[0] = statistics.file_count_categorized_by_postfix[i] / 10000;
+		counts[1] = (statistics.file_count_categorized_by_postfix[i] % 10000) / 1000;
+		counts[2] = (statistics.file_count_categorized_by_postfix[i] % 1000) / 100;
+		counts[3] = (statistics.file_count_categorized_by_postfix[i] % 100) / 10;
+		counts[4] = statistics.file_count_categorized_by_postfix[i] % 10;	
+
+		fprintf(stderr, "%s:	", file_types[i]);
+		for (int i = 0; i < 5; i++) {
+			if (counts[i]) {
+				symbols = malloc(counts[i] + 1);
+				memset(symbols, units[i], counts[i]);
+				symbols[counts[i]] = 0;
+				fprintf(stderr, symbols);
+				free(symbols);
+			}	
+		}	
+		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_postfix[i]);
 	}
 	return;
 }
