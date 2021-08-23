@@ -322,12 +322,12 @@ bogusimode:
 
 static unsigned long z_erofs_get_last_cluster_size_from_disk(struct z_erofs_vle_decompressed_index *last, int last_original_size)
 {
-
 	int ret;
 	char raw[EROFS_BLKSIZ] = {0};
 	char decompress[EROFS_BLKSIZ * 1000] = {0};
 	//read last extent buffer, decompress and compress to get size
 
+	fprintf(stderr, "blkaddr: %u blks: %lu\n", last->di_u.blkaddr, sbi.blocks);
 	ret = dev_read(raw, blknr_to_addr(last->di_u.blkaddr), EROFS_BLKSIZ);
 	if (ret < 0) {
 		fprintf(stderr, "dev_read error!\n");
@@ -354,7 +354,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 {
 	int err;
 	const erofs_off_t ibase = iloc(inode->nid);
-	const erofs_off_t pos = Z_EROFS_VLE_LEGACY_INDEX_ALIGN(ibase + inode->inode_isize + inode->xattr_isize);
+	const erofs_off_t pos = Z_EROFS_VLE_EXTENT_ALIGN(ibase + inode->inode_isize + inode->xattr_isize);
 	struct z_erofs_vle_decompressed_index *first;
 	unsigned int advise, type;
 	unsigned long lcn_max;
@@ -384,17 +384,18 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		fprintf(stderr, "z_erofs_fill_inode_lazy error occured\n");
 		return -1;
 	}
-
-	first = (struct z_erofs_vle_decompressed_index *) (compressdata); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
-	
+	if (inode->datalayout == EROFS_INODE_FLAT_COMPRESSION)
+		first = (struct z_erofs_vle_decompressed_index *) (compressdata + sizeof(struct z_erofs_map_header));//Z_EROFS_LEGACY_MAP_HEADER_SIZE); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
+	else
+		first = (struct z_erofs_vle_decompressed_index *) (compressdata + Z_EROFS_LEGACY_MAP_HEADER_SIZE);//Z_EROFS_LEGACY_MAP_HEADER_SIZE); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
 	unsigned long lcn = 0;
 	unsigned long last_head_lcn = 0;
 	unsigned long block = 0;
 
-	//fprintf(stderr, "erofs compressed blocks: %lu \n", compressed_blocks);
+	fprintf(stderr, "erofs compressed blocks: %lu \n", compressed_blocks);
 	fprintf(stderr, "inode number: %lu	nid: %lu	lcn max: %lu	original size: %lu\n", inode->i_ino[0], inode->nid, lcn_max, inode->i_size);
 	filesize = (compressed_blocks - 1) * pcluster_size;
-	while (lcn < lcn_max) {//&& block < compressed_blocks) {
+	while (lcn < lcn_max) {
 		struct z_erofs_vle_decompressed_index *di = first + lcn;
 		advise = le16_to_cpu(di->di_advise);
 		type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &
@@ -427,7 +428,7 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		}
 		
 	}	
-	// fprintf(stderr, "inode compressed blocks: %lu\n", compressed_blocks);
+	fprintf(stderr, "last head lcn: %lu, lcn max: %lu\n", last_head_lcn, lcn_max);
 	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
 	advise = le16_to_cpu(last->di_advise);
 	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
@@ -442,8 +443,8 @@ static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
 		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
 			// erofs_off_t offset = blknr_to_addr(last->di_u.blkaddr);
 			// int last_cluster_size = pread64(erofs_devfd, 
-
 			last_block_size = z_erofs_get_last_cluster_size_from_disk(last, inode->i_size - lcluster_size * last_head_lcn - last->di_clusterofs);
+			
 			if (last_block_size < 0) {
 				fprintf(stderr, "error occurred while get last extent size\n");
 				break;
