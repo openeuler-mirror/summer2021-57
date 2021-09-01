@@ -304,10 +304,19 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 		return err;
 	}
 
+	int inputmargin = 0;
+	if (erofs_sb_has_lz4_0padding()) {
+		while (!raw[inputmargin & ~PAGE_MASK])
+			if (!(++inputmargin & ~PAGE_MASK))
+				break;
+
+		if (inputmargin >= EROFS_BLKSIZ)
+			return -EIO;
+	}
 	int ret;
-	ret = LZ4_decompress_safe_partial(raw, decompress, Z_EROFS_PCLUSTER_MAX_SIZE, last_cluster_size, EROFS_BLKSIZ * 1024);
+	ret = LZ4_decompress_safe_partial(raw + inputmargin, decompress, EROFS_BLKSIZ, last_cluster_size, EROFS_BLKSIZ * 1024);
 	if (ret < 0) {
-		erofs_err("Decompress Block Failed");
+		erofs_err("Decompress Block Failed: %d\n", ret);
 		return ret;
 	}
 	
@@ -507,7 +516,7 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 		case EROFS_INODE_FLAT_PLAIN:
 			statistics.uncompress_files++;
 			*size = inode->i_size;
-			return 0;
+			break;
 		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 		case EROFS_INODE_FLAT_COMPRESSION:
 			statistics.compress_files++;
