@@ -38,38 +38,6 @@ static struct dumpcfg dumpcfg;
 
 // statistic info
 static char chart_format[] = "%s	: %d	%.1f%%	|%s												|\n";
-// enum {
-	// FILELESS4K = 0,
-	// FILELESS8K,
-	// FILELESS12K,
-	// FILELESS16K,
-	// FILELESS20K,
-	// FILELESS24K,
-	// FILELESS28K,
-	// FILELESS32K,
-	// FILELESS64K,
-	// FILELESS128K,
-	// FILELESS256K,
-	// FILELESS512K,
-	// FILELESS1M,
-	// FILEBIGGER,
-// };
-// static char *filesize_types[] = {
-	// "  0KB - 4KB",
-	// "  4KB - 8KB",
-	// "  8KB - 12KB",
-	// " 12KB - 16KB",
-	// " 16KB - 20KB",
-	// " 20KB - 24KB",
-	// " 24KB - 28KB",
-	// " 28KB - 32KB",
-	// " 32KB - 64KB",
-	// " 64KB - 128KB",
-	// "128KB - 256KB",
-	// "256KB - 512KB",
-	// "512KB - 1MB",
-	// "      > 1MB"
-// };
 static char *file_types[] = {
 	".so",
 	".png",
@@ -131,10 +99,7 @@ struct statistics {
 	unsigned int partial_used_block;
 	unsigned long wasted_fragment_bytes;
 
-	//unsigned int file_count_categorized_by_original_size[FILEBIGGER + 1];
-	//unsigned int file_count_categorized_by_compressed_size[FILEBIGGER + 1];
 	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
-
 	unsigned int file_original_size_counts[30];
 	unsigned int file_actual_size_counts[30];
 };
@@ -243,7 +208,6 @@ static dev_t erofs_new_decode_dev(u32 dev)
 {
 	const unsigned int major = (dev & 0xfff00) >> 8;
 	const unsigned int minor = (dev & 0xff) | ((dev >> 12) & 0xfff00);
-
 	return makedev(major, minor);
 }
 
@@ -305,7 +269,6 @@ static int erofs_read_inode_from_disk(struct erofs_inode *vi)
 		vi->i_uid = le32_to_cpu(die->i_uid);
 		vi->i_gid = le32_to_cpu(die->i_gid);
 		vi->i_nlink = le32_to_cpu(die->i_nlink);
-
 		vi->i_ctime = le64_to_cpu(die->i_ctime);
 		vi->i_ctime_nsec = le64_to_cpu(die->i_ctime_nsec);
 		vi->i_size = le64_to_cpu(die->i_size);
@@ -443,9 +406,6 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 	}
 	return 0;
 }
-
-
-
 
 static void dumpfs_print_superblock()
 {
@@ -599,7 +559,6 @@ static void dumpfs_print_inode()
 			break;
 		}
 
-
 	erofs_off_t size;
 	err = erofs_get_file_actual_size(&inode, &size);
 	if (err) {
@@ -641,7 +600,6 @@ static void dumpfs_print_inode()
 	else
 		fprintf(stderr, "File Path Not Found\n");
 	return;
-
 }
 
 static void dumpfs_print_inode_phy()
@@ -711,21 +669,6 @@ static void dumpfs_print_inode_phy()
 
 	return;
 }
-
-// static unsigned determine_file_category_by_size(unsigned long filesize) {
-	// if (filesize >= 1024 * 1024)
-		// return FILEBIGGER;
-	// else if (filesize >= 32 * 1024) {
-		// unsigned fs = filesize, count = 0;
-		// while (fs >= 64 * 1024) {
-			// fs /= 2;
-			// count++;
-		// }
-		// return FILELESS64K + count;
-	// }
-	// else 
-		// return FILELESS4K + filesize / (4 * 1024);
-// }
 
 static unsigned determine_file_category_by_postfix(const char *filename) {
 	
@@ -954,32 +897,6 @@ static void dumpfs_print_chart_of_file_type(char **file_types, unsigned len)
 		dumpfs_print_chart_row(col1, col2, col3, col4);
 	}
 }
-// static void dumpfs_print_chart_of_file()
-// {
-	// char col1[30];
-	// unsigned col2;
-	// double col3;
-	// char col4[400];
-	// unsigned lowerbound = 0, upperbound = 1;
-	// for (int i = 0; i < count; i++) {
-		// memset(col1, 0, 30);
-		// memset(col4, 0, 400);
-		// if (i == count - 1)
-			// strcpy(col1, "	Others		");
-		// else if (i <= 6)
-			// sprintf(col1, "%9d .. %d		", lowerbound, upperbound);
-		// else
-
-			// sprintf(col1, "%9d .. %d	", lowerbound, upperbound);
-		// col2 = statistics.file_original_size_counts[i];
-		// col3 = (double)(100 * col2) / (double)statistics.files;
-		// memset(col4, '#', col3 * 4);
-		// dumpfs_print_chart_row(col1, col2, col3, col4);
-		// lowerbound = upperbound;
-		// upperbound <<= 1;
-	// }
-// }
-
 
 static void dumpfs_print_statistic_of_compression()
 {
@@ -1024,7 +941,6 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "\nFile type distribution:		\n");
 	fprintf(stderr, "	type			: count	ratio	|distribution													|\n");
 	dumpfs_print_chart_of_file_type(file_types, OTHERFILETYPE + 1);
-
 	return;
 }
 
