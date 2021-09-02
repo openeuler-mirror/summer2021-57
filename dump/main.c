@@ -937,6 +937,22 @@ static void dumpfs_print_chart_of_file(unsigned *file_counts, unsigned len)
 	}
 }
 
+static void dumpfs_print_chart_of_file_type(char **file_types, unsigned len)
+{
+	char col1[30];
+	unsigned col2;
+	double col3;
+	char col4[401];
+
+	for (int i = 0; i < len; i++) {
+		memset(col1, 0, 30);
+		memset(col4, 0, 401);
+		sprintf(col1, "	%s		", file_types[i]);
+		col2 = statistics.file_count_categorized_by_postfix[i];
+		col3 = (double)(100 * col2) / (double)statistics.regular_files;
+		memset(col4, '#', col3 * 4);
+		dumpfs_print_chart_row(col1, col2, col3, col4);
+	}
 }
 // static void dumpfs_print_chart_of_file()
 // {
@@ -1005,6 +1021,9 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "   >=(KB) .. <(KB)		: count	ratio	|distribution												|\n");
 	dumpfs_print_chart_of_file(statistics.file_actual_size_counts, 30);
 	
+	fprintf(stderr, "\nFile type distribution:		\n");
+	fprintf(stderr, "	type			: count	ratio	|distribution													|\n");
+	dumpfs_print_chart_of_file_type(file_types, OTHERFILETYPE + 1);
 
 	return;
 }
