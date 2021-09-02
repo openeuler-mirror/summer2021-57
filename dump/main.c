@@ -57,7 +57,38 @@ static char *file_types[] = {
 	".txt",
 	"others",
 };
-
+enum {
+	FILELESS4K = 0,
+	FILELESS8K,
+	FILELESS12K,
+	FILELESS16K,
+	FILELESS20K,
+	FILELESS24K,
+	FILELESS28K,
+	FILELESS32K,
+	FILELESS64K,
+	FILELESS128K,
+	FILELESS256K,
+	FILELESS512K,
+	FILELESS1M,
+	FILEBIGGER,
+};
+static char *filesize_types[] = {
+	"  0KB - 4KB",
+	"  4KB - 8KB",
+	"  8KB - 12KB",
+	" 12KB - 16KB",
+	" 16KB - 20KB",
+	" 20KB - 24KB",
+	" 24KB - 28KB",
+	" 28KB - 32KB",
+	" 32KB - 64KB",
+	" 64KB - 128KB",
+	"128KB - 256KB",
+	"256KB - 512KB",
+	"512KB - 1MB",
+	"      > 1MB"
+};
 enum {
 	SOFILETYPE = 0,
 	PNGFILETYPE,
@@ -100,8 +131,8 @@ struct statistics {
 	unsigned long wasted_fragment_bytes;
 
 	// 0 - 4, 4 - 8, ..., 28 - 32 | 32 - 64, 64 - 128, ..., 512 - 1024 | > 1024
-	unsigned int file_count_categorized_by_original_size[8 + 5 + 1];
-	unsigned int file_count_categorized_by_compressed_size[8 + 5 + 1];
+	unsigned int file_count_categorized_by_original_size[FILEBIGGER + 1];
+	unsigned int file_count_categorized_by_compressed_size[FILEBIGGER + 1];
 
 	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
 };
@@ -824,12 +855,10 @@ static void dumpfs_print_inode()
 		return;
 	}
 
-	fprintf(stderr, "nid:			%lu\n", nid);
 
 	fprintf(stderr, "File inode:		%lu\n", inode.i_ino[0]);
 	fprintf(stderr, "File size:		%lu\n", inode.i_size);
 	fprintf(stderr, "File nid:		%lu\n", inode.nid);
-
 	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
 	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
 
@@ -912,22 +941,8 @@ static void dumpfs_print_inode_phy()
 	erofs_nid_t nid = dumpcfg.ino;
 	struct erofs_inode inode = {.nid = nid};
 	char path[PATH_MAX + 1] = {0};
-	//struct erofs_inode inode = { .i_ino[0] = dumpcfg.ino };
 	fprintf(stderr, "Inode %lu on-disk info: \n", dumpcfg.ino);
 
-	// err = erofs_read_inode_from_disk(&inode);
-	// if (err < 0) {
-	// 	fprintf(stderr, "get root inode failed!\n");
-	// 	return;
-	// }
-	// if (dumpcfg.ino != 0) 
-	// 	nid = read_dir_for_ino(sbi.root_nid, sbi.root_nid, &inode);
-	// if (nid == 0) {
-	// 	fprintf(stderr, "read inode failed\n");
-	// 	return;
-	// }
-
-	// inode.nid = nid;
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
 		fprintf(stderr, "error occured\n");
@@ -987,38 +1002,7 @@ static void dumpfs_print_inode_phy()
 
 	return;
 }
-enum {
-	FILELESS4K = 0,
-	FILELESS8K,
-	FILELESS12K,
-	FILELESS16K,
-	FILELESS20K,
-	FILELESS24K,
-	FILELESS28K,
-	FILELESS32K,
-	FILELESS64K,
-	FILELESS128K,
-	FILELESS256K,
-	FILELESS512K,
-	FILELESS1M,
-	FILEBIGGER,
-};
-static char *filesize_types[] = {
-	"  0KB - 4KB",
-	"  4KB - 8KB",
-	"  8KB - 12KB",
-	" 12KB - 16KB",
-	" 16KB - 20KB",
-	" 20KB - 24KB",
-	" 24KB - 28KB",
-	" 28KB - 32KB",
-	" 32KB - 64KB",
-	" 64KB - 128KB",
-	"128KB - 256KB",
-	"256KB - 512KB",
-	"512KB - 1MB",
-	"      > 1MB"
-};
+
 static unsigned determine_file_category_by_size(unsigned long filesize) {
 	if (filesize >= 1024 * 1024)
 		return FILEBIGGER;
@@ -1245,16 +1229,7 @@ static void dumpfs_print_statistic()
 		original_counts[3] = (statistics.file_count_categorized_by_original_size[i] % 100) / 10;
 		original_counts[4] = statistics.file_count_categorized_by_original_size[i] % 10;
 
-		// compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
-		// compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
-		// compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
-		// compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
-		// compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
-
-
 		fprintf(stderr, "%s:	", filesize_types[i]);
-		//fprintf(stderr,"	before:	");
-		
 		for (int i = 0; i < 5; i++) {
 			if (original_counts[i]) {
 				symbols = malloc(original_counts[i] + 1);
@@ -1265,19 +1240,6 @@ static void dumpfs_print_statistic()
 			}
 		}
 		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_original_size[i]);
-
-		// fprintf(stderr, "	after:	");
-		// for (int i = 0; i < 5; i++) {
-		// 	if (compressed_counts[i]) {
-		// 		symbols = malloc(compressed_counts[i] + 1);
-		// 		memset(symbols, units[i], compressed_counts[i]);
-		// 		symbols[compressed_counts[i]] = 0;
-		// 		fprintf(stderr, symbols);
-		// 		free(symbols);
-		// 	}	
-		// }
-		// fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);
-
 	}
 
 	unsigned compressed_counts[5] = {0};
