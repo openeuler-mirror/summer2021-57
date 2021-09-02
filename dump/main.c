@@ -37,7 +37,7 @@ struct dumpcfg {
 static struct dumpcfg dumpcfg;
 
 // statistic info
-static char chart_format[] = "	%s	:	%d	%.1f%%	|%s												|\n";
+static char chart_format[] = "%s	: %d	%.1f%%	|%s												|\n";
 // enum {
 	// FILELESS4K = 0,
 	// FILELESS8K,
@@ -839,7 +839,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				while (actual_size || original_size) {
 					if (actual_size) {
 						actual_size >>= 1;
-						original_size_mark++;
+						actual_size_mark++;
 					}
 					if (original_size) {
 						original_size >>= 1;
@@ -911,26 +911,59 @@ static void dumpfs_print_chart_row(char *col1, unsigned col2, double col3, char 
 	return;
 }
 
-static void dumpfs_print_chart_of_file()
+static void dumpfs_print_chart_of_file(unsigned *file_counts, unsigned len)
 {
 	char col1[30];
 	unsigned col2;
 	double col3;
 	char col4[400];
 	unsigned lowerbound = 0, upperbound = 1;
-	for (int i = 0; i <= 29; i++) {
+	for (int i = 0; i < len; i++) {
 		memset(col1, 0, 30);
 		memset(col4, 0, 400);
-		if (i == 29)
-			strcpy(col1, "	Others	");
+		if (i == len - 1)
+			strcpy(col1, "	Others		");
+		else if (i <= 6)
+			sprintf(col1, "%9d .. %d		", lowerbound, upperbound);
 		else
-			sprintf(col1, "%8d .. %d	", lowerbound, upperbound);
-		col2 = statistics.file_original_size_counts[i];
-		col3 = (double)(100 * col2) / (double)statistics.files;
+
+			sprintf(col1, "%9d .. %d	", lowerbound, upperbound);
+		col2 = file_counts[i];
+		col3 = (double)(100 * col2) / (double)statistics.regular_files;
 		memset(col4, '#', col3 * 4);
 		dumpfs_print_chart_row(col1, col2, col3, col4);
+		lowerbound = upperbound;
+		upperbound <<= 1;
 	}
 }
+
+}
+// static void dumpfs_print_chart_of_file()
+// {
+	// char col1[30];
+	// unsigned col2;
+	// double col3;
+	// char col4[400];
+	// unsigned lowerbound = 0, upperbound = 1;
+	// for (int i = 0; i < count; i++) {
+		// memset(col1, 0, 30);
+		// memset(col4, 0, 400);
+		// if (i == count - 1)
+			// strcpy(col1, "	Others		");
+		// else if (i <= 6)
+			// sprintf(col1, "%9d .. %d		", lowerbound, upperbound);
+		// else
+
+			// sprintf(col1, "%9d .. %d	", lowerbound, upperbound);
+		// col2 = statistics.file_original_size_counts[i];
+		// col3 = (double)(100 * col2) / (double)statistics.files;
+		// memset(col4, '#', col3 * 4);
+		// dumpfs_print_chart_row(col1, col2, col3, col4);
+		// lowerbound = upperbound;
+		// upperbound <<= 1;
+	// }
+// }
+
 
 static void dumpfs_print_statistic_of_compression()
 {
@@ -965,77 +998,14 @@ static void dumpfs_print_statistic()
 	dumpfs_print_statistic_of_filetype();
 	dumpfs_print_statistic_of_compression();
 
-	fprintf(stderr, "		>=(KB) .. <(KB)	:	count	ratio	|distribution												|\n");
-	dumpfs_print_chart_of_file();
-	// char units[] = "@#*=-";
-	// char *symbols = NULL; 
-	// unsigned original_counts[5] = {0};
-	// //unsigned compressed_counts[5] = {0};
-	// fprintf(stderr, "Filesystem filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
-	// fprintf(stderr, "Original filesize distribution: \n");
-	// for (int i = 0; i < 30; i++) {
-		// original_counts[0] = statistics.file_count_categorized_by_original_size[i] / 10000;
-		// original_counts[1] = (statistics.file_count_categorized_by_original_size[i] % 10000) / 1000;
-		// original_counts[2] = (statistics.file_count_categorized_by_original_size[i] % 1000) / 100;
-		// original_counts[3] = (statistics.file_count_categorized_by_original_size[i] % 100) / 10;
-		// original_counts[4] = statistics.file_count_categorized_by_original_size[i] % 10;
+	fprintf(stderr, "\nOriginal file size distribution:	\n");
+	fprintf(stderr, "   >=(KB) .. <(KB)		: count	ratio	|distribution												|\n");
+	dumpfs_print_chart_of_file(statistics.file_original_size_counts, 30);
+	fprintf(stderr, "\nOn-Disk file size distribution:	\n");
+	fprintf(stderr, "   >=(KB) .. <(KB)		: count	ratio	|distribution												|\n");
+	dumpfs_print_chart_of_file(statistics.file_actual_size_counts, 30);
+	
 
-		// fprintf(stderr, "%s:	", filesize_types[i]);
-		// for (int i = 0; i < 5; i++) {
-			// if (original_counts[i]) {
-				// symbols = malloc(original_counts[i] + 1);
-				// memset(symbols, units[i], original_counts[i]);
-				// symbols[original_counts[i]] = 0;
-				// fprintf(stderr, symbols);
-				// free(symbols);
-			// }
-		// }
-		// fprintf(stderr, " %u\n", statistics.file_count_categorized_by_original_size[i]);
-	// }
-
-	// unsigned compressed_counts[5] = {0};
-	// fprintf(stderr, "Compressed fileszie distribution: \n");
-	// for (int i = 0; i <= FILEBIGGER; i++) {
-		// compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
-		// compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
-		// compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
-		// compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
-		// compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
-
-		// fprintf(stderr, "%s:	", filesize_types[i]);
-		// for (int i = 0; i < 5; i++) {
-			// if (compressed_counts[i]) {
-				// symbols = malloc(compressed_counts[i] + 1);
-				// memset(symbols, units[i], compressed_counts[i]);
-				// symbols[compressed_counts[i]] = 0;
-				// fprintf(stderr, symbols);
-				// free(symbols);
-			// }	
-		// }
-		// fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);	
-	// }
-
-	//fprintf(stderr, "File type distribution: @:10000, #:1000, *:100, =:10, -:1\n");
-	//unsigned counts[5] = {0};
-	//for (int i = 0; i <= OTHERFILETYPE; i++) {
-		//counts[0] = statistics.file_count_categorized_by_postfix[i] / 10000;
-		//counts[1] = (statistics.file_count_categorized_by_postfix[i] % 10000) / 1000;
-		//counts[2] = (statistics.file_count_categorized_by_postfix[i] % 1000) / 100;
-		//counts[3] = (statistics.file_count_categorized_by_postfix[i] % 100) / 10;
-		//counts[4] = statistics.file_count_categorized_by_postfix[i] % 10;	
-
-		//fprintf(stderr, "%s:	", file_types[i]);
-		//for (int i = 0; i < 5; i++) {
-			//if (counts[i]) {
-				//symbols = malloc(counts[i] + 1);
-				//memset(symbols, units[i], counts[i]);
-				//symbols[counts[i]] = 0;
-				//fprintf(stderr, symbols);
-				//free(symbols);
-			//}	
-		//}	
-		//fprintf(stderr, " %u\n", statistics.file_count_categorized_by_postfix[i]);
-	//}
 	return;
 }
 
