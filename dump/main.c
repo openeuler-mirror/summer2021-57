@@ -201,38 +201,29 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 		switch (opt) {
 			case 's':
 				dumpcfg.print_superblock = true;
-				// fprintf(stderr, "parse -s \n");
 				break;
 			case 'S':
 				dumpcfg.print_statistic = true;
-				// fprintf(stderr, "parse -S \n");
 				break;
 			case 'v':
 			case 'V':
-				// dumpcfg.print_version = true;
-				// fprintf(stderr, "parse -V \n");
 				dumpfs_print_version();
 				exit(0);
 				break;
 			case 'i':
-				// to do
 				i = atoll(optarg);
-				// fprintf(stderr, "parse -i %lu\n", i);
 				dumpcfg.print_inode = true;
 				dumpcfg.ino = i;
 				break;
 			case 'I':
 				i = atoll(optarg);
-				// fprintf(stderr, "parse -I %lu\n", i);
 				dumpcfg.print_inode_phy = true;
 				dumpcfg.ino = i;
 				break;
 			case 'h':
 			case 1:
-				// long option --help 
 				usage();
 				exit(0);
-
 			default: /* '?' */
 				return -EINVAL;
 		}
@@ -373,47 +364,11 @@ bogusimode:
 
 static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
-	// int err;
 	int len;
 	int inputmargin = 0;
 
-	// unsigned pblk_cnt = map->m_plen / EROFS_BLKSIZ;
-	// erofs_off_t offset = map->m_pa;
-	// char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
 	char *raw = (char*)malloc(map->m_plen);
 	char decompress[EROFS_BLKSIZ * 1536] = {0};
-
-	// *last_cluster_compressed_size = (pblk_cnt - 1) * EROFS_BLKSIZ;
-	// for (int i = pblk_cnt; i > 0; i--) {
-		// erofs_err("m_plen: %lu index: %u m_pa: 0x%lx size: %lu", map->m_plen, map->index, map->m_pa, last_cluster_size);
-		// err = dev_read(raw, offset, EROFS_BLKSIZ);
-		// if (err) {
-			// erofs_err("Read Block:  for  bytes Failed");
-			// return err;
-		// }
-
-		// inputmargin = 0;
-		// if (erofs_sb_has_lz4_0padding()) {
-			// while (!raw[inputmargin & ~PAGE_MASK])
-				// if (!(++inputmargin & ~PAGE_MASK))
-					// break;
-
-			// if (inputmargin >= EROFS_BLKSIZ)
-				// return -EIO;
-		// }
-
-		// if (i == 1)
-			// break;
-
-		// len = LZ4_decompress_safe(raw + inputmargin, decompress, EROFS_BLKSIZ - inputmargin, EROFS_BLKSIZ * 1024);
-		// if (len < 0) {
-			// erofs_err("Decompress Block Failed, input margin: %d, i %d", inputmargin, i);
-			// return len;
-		// }
-		// erofs_warn("len: %d blk_cnt: %d\n", len, pblk_cnt - i);
-		// offset += EROFS_BLKSIZ;
-		// last_cluster_size -= len;
-	// }
 	inputmargin = 0;
 	if (erofs_sb_has_lz4_0padding()) {
 		while (!raw[inputmargin & ~PAGE_MASK])
@@ -437,34 +392,6 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 	return 0;
 }
 
-//static unsigned long z_erofs_get_last_cluster_size_from_disk(struct z_erofs_vle_decompressed_index *last, int last_original_size)
-//{
-//	int ret;
-//	char raw[EROFS_BLKSIZ] = {0};
-//	char decompress[EROFS_BLKSIZ * 1000] = {0};
-//	//read last extent buffer, decompress and compress to get size
-//
-//	fprintf(stderr, "blkaddr: blks:\n", last->di_u.blkaddr, sbi.blocks);
-//	ret = dev_read(raw, blknr_to_addr(last->di_u.blkaddr), EROFS_BLKSIZ);
-//	if (ret < 0) {
-//		fprintf(stderr, "dev_read error!\n");
-//		return -EIO;
-//	}
-//
-//	ret = LZ4_decompress_safe_partial(raw, decompress, EROFS_BLKSIZ, last_original_size, EROFS_BLKSIZ * 1000);
-//	if (ret < 0) {
-//		fprintf(stderr, "LZ4 decompress safe error ret: %d\n", ret);
-//		return -EIO;
-//	}
-//
-//	int source_size = ret;
-//	ret = LZ4_compress_destSize(decompress, raw, &source_size, EROFS_BLKSIZ * 1000);
-//	if (ret <= 0) {
-//		fprintf(stderr, "LZ4 compress destsize error ret: %d\n", ret);
-//		return -EIO;
-//	}
-//	return ret;
-//}
 static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_t *size)
 {
 	int err;
@@ -498,123 +425,8 @@ static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_
 		*size += last_cluster_compressed_size;
 	}
 	return 0;
-
-
 }
-// get compress file actual on-disk size}
-//static unsigned long z_erofs_get_file_size(struct erofs_inode *inode)
-//{
-//	int err;
-//	const erofs_off_t ibase = iloc(inode->nid);
-//	const erofs_off_t pos = Z_EROFS_VLE_EXTENT_ALIGN(ibase + inode->inode_isize + inode->xattr_isize);
-//	struct z_erofs_vle_decompressed_index *first;
-//	unsigned int advise, type;
-//	unsigned long lcn_max;
-//	void *compressdata;
-//	unsigned long filesize = 0;
-//	unsigned int pcluster_size = 4096;
-//	unsigned int lcluster_size;
-//	erofs_off_t compressed_blocks = 0;
-//	// struct z_erofs_map_header *mh;
-//
-//	compressed_blocks = inode->u.i_blocks;
-//	inode->extent_isize = vle_compressmeta_capacity(inode->i_size);
-//	compressdata = malloc(inode->extent_isize);
-//	if (!compressdata) {
-//		fprintf(stderr, "malloc failed!\n");
-//		return -ENOMEM;
-//	}
-//	lcn_max = BLK_ROUND_UP(inode->i_size);
-//	
-//	err = dev_read(compressdata, pos, inode->extent_isize);
-//	if (err < 0) {
-//		fprintf(stderr, "read compressmeta failed!\n");
-//		return -EIO;
-//	}
-//
-//	err = z_erofs_fill_inode_lazy(inode);
-//	if (err) {
-//		fprintf(stderr, "z_erofs_fill_inode_lazy error occured\n");
-//		return -1;
-//	}
-//	lcluster_size = 1 << inode->z_logical_clusterbits;
-//	// mh = (struct z_erofs_map_header *) compressdata;
-//	if (inode->datalayout == EROFS_INODE_FLAT_COMPRESSION)
-//		first = (struct z_erofs_vle_decompressed_index *) (compressdata + sizeof(struct z_erofs_map_header));//Z_EROFS_LEGACY_MAP_HEADER_SIZE); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
-//	else
-//		first = (struct z_erofs_vle_decompressed_index *) (compressdata + Z_EROFS_LEGACY_MAP_HEADER_SIZE);//Z_EROFS_LEGACY_MAP_HEADER_SIZE); // + Z_EROFS_LEGACY_MAP_HEADER_SIZE);	
-//	unsigned long lcn = 0;
-//	unsigned long last_head_lcn = 0;
-//	unsigned long block = 0;
-//
-//	fprintf(stderr, "erofs compressed blocks: %lu \n", compressed_blocks);
-//	fprintf(stderr, "inode number: %lu	nid: %lu	lcn max: %lu	original size: %lu\n", inode->i_ino[0], inode->nid, lcn_max, inode->i_size);
-//	filesize = (compressed_blocks - 1) * pcluster_size;
-//	while (lcn < lcn_max) {
-//		struct z_erofs_vle_decompressed_index *di = first + lcn;
-//		advise = le16_to_cpu(di->di_advise);
-//		type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &
-//			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
-//		switch (type) {
-//		case Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD:
-//			// fprintf(stderr, "nonhead lcn: %lu head lcn: %u\n", lcn, le16_to_cpu(di->di_u.delta[0]));
-//			lcn += le16_to_cpu(di->di_u.delta[1]) ? le16_to_cpu(di->di_u.delta[1]) : 1;
-//			break;
-//		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
-//		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
-//			if (block == compressed_blocks - 1) {
-//				last_head_lcn = lcn;
-//			}
-//			// if (le32_to_cpu(di->di_u.blkaddr) == 0) {
-			//
-//			// } else {
-//			// 	last_head_lcn = lcn;
-//			// 	filesize += pcluster_size;
-//			// }
-//			// fprintf(stderr, "head lcn: %lu, blk addr: %u offset: %u type: %u\n", lcn,
-//			//	le32_to_cpu(di->di_u.blkaddr), le16_to_cpu(di->di_clusterofs), type);
-//			lcn++;
-//			block++;
-//
-//			break;
-//		default:
-//			DBG_BUGON(1);
-//			return -EOPNOTSUPP;
-//		}
-//		
-//	}	
-//	fprintf(stderr, "last head lcn: %lu, lcn max: %lu\n", last_head_lcn, lcn_max);
-//	struct z_erofs_vle_decompressed_index *last = first + last_head_lcn;
-//	advise = le16_to_cpu(last->di_advise);
-//	type = (advise >> Z_EROFS_VLE_DI_CLUSTER_TYPE_BIT) &&
-//			((1 << Z_EROFS_VLE_DI_CLUSTER_TYPE_BITS) - 1);
-//	
-//	int last_block_size = 0;
-//
-//	switch (type) {
-//		case Z_EROFS_VLE_CLUSTER_TYPE_PLAIN:
-//			filesize += (inode->i_size - last_head_lcn * lcluster_size - le16_to_cpu(last->di_clusterofs));
-//			break;
-//		case Z_EROFS_VLE_CLUSTER_TYPE_HEAD:
-//			// erofs_off_t offset = blknr_to_addr(last->di_u.blkaddr);
-//			// int last_cluster_size = pread64(erofs_devfd, 
-//			last_block_size = z_erofs_get_last_cluster_size_from_disk(last, inode->i_size - lcluster_size * last_head_lcn - last->di_clusterofs);
-//			
-//			if (last_block_size < 0) {
-//				fprintf(stderr, "error occurred while get last extent size\n");
-//				break;
-//			}
-//			fprintf(stderr, "last block size: %d\n", last_block_size);
-//			filesize += last_block_size;
-//			break;
-//		default:
-//			return -ENOTSUP;
-//	}
-//
-//	fprintf(stderr, "filesize: %lu\n\n", filesize);
-//	return filesize;
-//}
-//
+
 static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *size)
 {
 	int err;
@@ -660,86 +472,6 @@ static void dumpfs_print_superblock()
 		fprintf(stderr, "%02x", sbi.uuid[i]);
 	fprintf(stderr, "\n");
 }
-
-// static erofs_nid_t read_dir_for_ino (erofs_nid_t nid, erofs_nid_t parent_nid, struct erofs_inode *inode)
-// {
-// 	
-// 	int ret;
-// 	char buf[EROFS_BLKSIZ];
-// 	erofs_nid_t target = 0;
-// 	erofs_off_t offset;
-// 	//fprintf(stderr, "read_dir: %lu\n", nid);
-// 
-// 	offset = 0;
-// 	while (offset < inode->i_size) {
-// 		erofs_off_t maxsize = min_t(erofs_off_t,
-// 					inode->i_size - offset, EROFS_BLKSIZ);
-// 		struct erofs_dirent *de = (void *)buf;
-// 		struct erofs_dirent *end;
-// 		unsigned int nameoff;
-// 
-// 		ret = erofs_pread(inode, buf, maxsize, offset);
-// 		if (ret)
-// 			return ret;
-// 
-// 		nameoff = le16_to_cpu(de->nameoff);
-// 
-// 		if (nameoff < sizeof(struct erofs_dirent) ||
-// 		    nameoff >= PAGE_SIZE) {
-// 			erofs_err("invalid de[0].nameoff %u @ nid %llu",
-// 				  nameoff, nid | 0ULL);
-// 			return -EFSCORRUPTED;
-// 		}
-// 
-// 		end = (void *)buf + nameoff;
-// 		while (de < end) {
-// 
-// 			const char *de_name;
-// 			unsigned int de_namelen;
-// 
-// 			nameoff = le16_to_cpu(de->nameoff);
-// 			de_name = (char *)buf + nameoff;
-// 
-// 			/* the last dirent in the block? */
-// 			if (de + 1 >= end)
-// 				de_namelen = strnlen(de_name, maxsize - nameoff);
-// 			else
-// 				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
-// 
-// 			/* a corrupted entry is found */
-// 			if (nameoff + de_namelen > maxsize ||
-// 			    de_namelen > EROFS_NAME_LEN) {
-// 				erofs_err("bogus dirent @ nid %llu", le64_to_cpu(de->nid) | 0ULL);
-// 				DBG_BUGON(1);
-// 				return -EFSCORRUPTED;
-// 			}
-// 
-// 			struct erofs_inode child = { .nid = de->nid };
-// 			ret = erofs_read_inode_from_disk(&child);
-// 			if (ret < 0) {
-// 				fprintf(stderr, "read child inode failed\n");
-// 				return 0;
-// 			}
-// 
-// 			if (child.i_ino[0] == dumpcfg.ino) {
-// 				char filename[255] = {0};
-// 				memcpy(filename, de_name, de_namelen);
-// 				fprintf(stderr, "Filename:		%s\n", filename);
-// 				return de->nid;
-// 			}
-// 			if (de->file_type == EROFS_FT_DIR && de->nid != parent_nid && de->nid != nid) {
-// 				target = read_dir_for_ino(de->nid, nid, &child);
-// 				if (target > 0) {
-// 					memcpy(inode, &child, sizeof(struct erofs_inode));
-// 					return target;
-// 				}
-// 			}
-// 			++de;
-// 		}
-// 		offset += maxsize;
-// 	}
-// 	return 0;
-// }
 
 static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned mark)
 {
@@ -823,7 +555,6 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  		offset += maxsize;
  	}
  	return 1;
- 
 }
 
 static void dumpfs_print_inode()
@@ -835,33 +566,17 @@ static void dumpfs_print_inode()
 
 	fprintf(stderr, "Inode %lu info: \n", dumpcfg.ino);
 
-	// err = erofs_read_inode_from_disk(&inode);
-	// if (err < 0) {
-	// 	fprintf(stderr, "get root inode failed!\n");
-	// 	return;
-	// }
-
-	// if (dumpcfg.ino != 0) 
-	// 	nid = read_dir_for_ino(sbi.root_nid, sbi.root_nid, &inode);
-	// if (nid == 0) {
-	// 	fprintf(stderr, "read inode failed\n");
-	// 	return;
-	// }
-	
-	// inode.nid = nid;
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
 		fprintf(stderr, "error occured\n");
 		return;
 	}
 
-
 	fprintf(stderr, "File inode:		%lu\n", inode.i_ino[0]);
 	fprintf(stderr, "File size:		%lu\n", inode.i_size);
 	fprintf(stderr, "File nid:		%lu\n", inode.nid);
 	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
 	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
-
 	//get file type
 	switch (inode.i_mode & S_IFMT) {
 		case S_IFREG:
@@ -1016,9 +731,7 @@ static unsigned determine_file_category_by_size(unsigned long filesize) {
 	}
 	else 
 		return FILELESS4K + filesize / (4 * 1024);
-
 }
-
 
 static unsigned determine_file_category_by_postfix(const char *filename) {
 	
@@ -1044,8 +757,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 	char filename[PATH_MAX + 1];
 	erofs_off_t offset;
 	
-	//fprintf(stderr, "read_dir: %lu\n", nid);
-
 	ret = erofs_read_inode_from_disk(&vi);
 	if (ret)
 		return ret;
@@ -1070,14 +781,11 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				  nameoff, nid | 0ULL);
 			return -EFSCORRUPTED;
 		}
-
 		end = (void *)buf + nameoff;
 		while (de < end) {
-
 			const char *de_name;
 			unsigned int de_namelen;
 			struct erofs_inode inode = { .nid = de->nid };
-
 			nameoff = le16_to_cpu(de->nameoff);
 			de_name = (char *)buf + nameoff;
 
@@ -1104,7 +812,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			
 			case EROFS_FT_UNKNOWN:
 				break;	
-
 			case EROFS_FT_REG_FILE:
 				ret = erofs_read_inode_from_disk(&inode);
 				if (ret) {
@@ -1139,35 +846,27 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					}
 				}
 				break;	
-
 			case EROFS_FT_CHRDEV:
 				statistics.chardev_files++;
 				break;	
-
 			case EROFS_FT_BLKDEV:
 				statistics.blkdev_files++;
 				break;	
-
 			case EROFS_FT_FIFO:
 				statistics.fifo_files++;
 				break;	
-
 			case EROFS_FT_SOCK:
 				statistics.sock_files++;
 				break;	
-
 			case EROFS_FT_SYMLINK:
 				statistics.symlink_files++;
 				break;
-
 			}
-
 			++de;
 		}
 		offset += maxsize;
 	}
 	return 0;
-	
 }
 
 
@@ -1182,7 +881,6 @@ static void dumpfs_print_statistic()
 		fprintf(stderr, "look for root inode failed!");
 		return;
 	}
-	
 	//blocks info
 	statistics.blocks = sbi.blocks;
 	
@@ -1200,29 +898,21 @@ static void dumpfs_print_statistic()
 	fprintf(stderr, "Filesystem FIFO Files:		%lu\n", statistics.fifo_files);
 	fprintf(stderr, "Filesystem SOCK Files:		%lu\n", statistics.sock_files);
 	fprintf(stderr, "Filesystem Link Files:		%lu\n", statistics.symlink_files);
-
 	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compress_files);
 	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompress_files);
-
-
 	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
 	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
 
 	statistics.compress_rate = (double)(100 * statistics.files_total_size) / (double)(statistics.files_total_origin_size);
-
 	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
-	
 
 	fprintf(stderr, "Filesystem filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
 	char units[] = "@#*=-";
 	char *symbols = NULL; 
-
-
 	unsigned original_counts[5] = {0};
 	//unsigned compressed_counts[5] = {0};
 	fprintf(stderr, "Original filesize distribution: \n");
 	for (int i = 0; i < 14; i++) {
-
 		original_counts[0] = statistics.file_count_categorized_by_original_size[i] / 10000;
 		original_counts[1] = (statistics.file_count_categorized_by_original_size[i] % 10000) / 1000;
 		original_counts[2] = (statistics.file_count_categorized_by_original_size[i] % 1000) / 100;
@@ -1245,7 +935,6 @@ static void dumpfs_print_statistic()
 	unsigned compressed_counts[5] = {0};
 	fprintf(stderr, "Compressed fileszie distribution: \n");
 	for (int i = 0; i <= FILEBIGGER; i++) {
-
 		compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
 		compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
 		compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
@@ -1296,7 +985,6 @@ int main(int argc, char** argv)
 	// init config
 	erofs_init_configure();
 
-	
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
 		fprintf(stderr, "parse config failed\n");
