@@ -143,12 +143,12 @@ static void usage(void)
 	// TODO
 	fputs("usage: [options] erofs-image \n\n"
 	"Dump erofs layout from erofs-image, and [options] are:\n"
-	      " -s            print information about superblock\n"
-	      " -S                print statistic information of the erofs-image\n"
-	      " -i #                print target # inode info\n"
-	      " -I #          print target # inode on-disk info\n"
-	      " -v/-V                print dump.erofs version info\n"
-	      " -h/--help             display this help and exit\n", stderr);
+	      " -s		print information about superblock\n"
+	      " -S		print statistic information of the erofs-image\n"
+	      " -i #		print target # inode info\n"
+	      " -I #		print target # inode on-disk info\n"
+	      " -v/-V		print dump.erofs version info\n"
+	      " -h/--help	display this help and exit\n", stderr);
 }
 static void dumpfs_print_version()
 {
