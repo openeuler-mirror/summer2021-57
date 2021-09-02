@@ -350,7 +350,7 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 	// erofs_off_t offset = map->m_pa;
 	// char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
 	char *raw = (char*)malloc(map->m_plen);
-	char decompress[EROFS_BLKSIZ * 1024] = {0};
+	char decompress[EROFS_BLKSIZ * 1536] = {0};
 
 	// *last_cluster_compressed_size = (pblk_cnt - 1) * EROFS_BLKSIZ;
 	// for (int i = pblk_cnt; i > 0; i--) {
@@ -393,7 +393,7 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 	if (inputmargin != 0)
 		len = map->m_plen;
 	else {
-		len = LZ4_decompress_safe(raw, decompress, map->m_plen, EROFS_BLKSIZ * 1024);
+		len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, EROFS_BLKSIZ * 1536);
 		erofs_warn("decoded %d bytes into decompress", len);
 		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
 	}
