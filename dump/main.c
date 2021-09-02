@@ -1343,8 +1343,6 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	erofs_show_config();
-
 	// open image
 	err = dev_open_ro(cfg.c_img_path);
 	if (err) {
