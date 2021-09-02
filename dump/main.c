@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+* mkfs/main.c
+*
+* Copyright (C) 2021-2022 HUAWEI, Inc.
+*             http://www.huawei.com/
+* Created by Wang Qi <mpiglet@outlook.com>
+*/
 #include <time.h>
 #include <sys/stat.h>
 #include <sys/time.h>
@@ -29,6 +37,48 @@ struct dumpcfg {
 static struct dumpcfg dumpcfg;
 
 // statistic info
+static char *file_types[] = {
+	".so",
+	".png",
+	".jpg",
+	".xml",
+	".html",
+	".odex",
+	".vdex",
+	".apk",
+	".ttf",
+	".jar",
+	".json",
+	".ogg",
+	".oat",
+	".art",
+	".rc",
+	".otf",
+	".txt",
+	"others",
+};
+
+enum {
+	SOFILETYPE = 0,
+	PNGFILETYPE,
+	JPEGFILETYPE,
+	XMLFILETYPE,
+	HTMLFILETYPE,
+	ODEXFILETYPE,
+	VDEXFILETYPE,
+	APKFILETYPE,
+	TTFFILETYPE,
+	JARFILETYPE,
+	JSONFILETYPE,
+	OGGFILETYPE,
+	OATFILETYPE,
+	ARTFILETYPE,
+	RCFILETYPE,
+	OTFFILETYPE,
+	TXTFILETYPE,
+	OTHERFILETYPE,
+};
+
 struct statistics {
 	unsigned long blocks;
 	unsigned long files;
@@ -53,7 +103,7 @@ struct statistics {
 	unsigned int file_count_categorized_by_original_size[8 + 5 + 1];
 	unsigned int file_count_categorized_by_compressed_size[8 + 5 + 1];
 
-	unsigned int file_count_categorized_by_postfix[3];
+	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
 };
 static struct statistics statistics;
 
@@ -292,50 +342,58 @@ bogusimode:
 
 static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
-	int err;
+	// int err;
 	int len;
 	int inputmargin = 0;
 
-	unsigned pblk_cnt = map->m_plen / EROFS_BLKSIZ;
-	erofs_off_t offset = map->m_pa;
-	char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
+	// unsigned pblk_cnt = map->m_plen / EROFS_BLKSIZ;
+	// erofs_off_t offset = map->m_pa;
+	// char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
+	char *raw = (char*)malloc(map->m_plen);
 	char decompress[EROFS_BLKSIZ * 1024] = {0};
 
-	*last_cluster_compressed_size = (pblk_cnt - 1) * EROFS_BLKSIZ;
-	for (int i = pblk_cnt; i > 0; i--) {
-		erofs_err("m_plen: %lu index: %u m_pa: 0x%lx size: %lu", map->m_plen, map->index, map->m_pa, last_cluster_size);
-		err = dev_read(raw, offset, EROFS_BLKSIZ);
-		if (err) {
-			erofs_err("Read Block:  for  bytes Failed");
-			return err;
-		}
+	// *last_cluster_compressed_size = (pblk_cnt - 1) * EROFS_BLKSIZ;
+	// for (int i = pblk_cnt; i > 0; i--) {
+		// erofs_err("m_plen: %lu index: %u m_pa: 0x%lx size: %lu", map->m_plen, map->index, map->m_pa, last_cluster_size);
+		// err = dev_read(raw, offset, EROFS_BLKSIZ);
+		// if (err) {
+			// erofs_err("Read Block:  for  bytes Failed");
+			// return err;
+		// }
 
-		inputmargin = 0;
-		if (erofs_sb_has_lz4_0padding()) {
-			while (!raw[inputmargin & ~PAGE_MASK])
-				if (!(++inputmargin & ~PAGE_MASK))
-					break;
+		// inputmargin = 0;
+		// if (erofs_sb_has_lz4_0padding()) {
+			// while (!raw[inputmargin & ~PAGE_MASK])
+				// if (!(++inputmargin & ~PAGE_MASK))
+					// break;
 
-			if (inputmargin >= EROFS_BLKSIZ)
-				return -EIO;
-		}
+			// if (inputmargin >= EROFS_BLKSIZ)
+				// return -EIO;
+		// }
 
-		if (i == 1)
-			break;
+		// if (i == 1)
+			// break;
 
-		len = LZ4_decompress_safe(raw, decompress, EROFS_BLKSIZ, EROFS_BLKSIZ * 1024);
-		if (len < 0) {
-			erofs_err("Decompress Block Failed, input margin: %d, i %d", inputmargin, i);
-			return len;
-		}
-		erofs_warn("len: %d blk_cnt: %d\n", len, pblk_cnt - i);
-		offset += EROFS_BLKSIZ;
-		last_cluster_size -= len;
+		// len = LZ4_decompress_safe(raw + inputmargin, decompress, EROFS_BLKSIZ - inputmargin, EROFS_BLKSIZ * 1024);
+		// if (len < 0) {
+			// erofs_err("Decompress Block Failed, input margin: %d, i %d", inputmargin, i);
+			// return len;
+		// }
+		// erofs_warn("len: %d blk_cnt: %d\n", len, pblk_cnt - i);
+		// offset += EROFS_BLKSIZ;
+		// last_cluster_size -= len;
+	// }
+	inputmargin = 0;
+	if (erofs_sb_has_lz4_0padding()) {
+		while (!raw[inputmargin & ~PAGE_MASK])
+			if (!(++inputmargin & ~PAGE_MASK))
+				break;
+
 	}
 	if (inputmargin != 0)
-		len = EROFS_BLKSIZ;
+		len = map->m_plen;
 	else {
-		len = LZ4_decompress_safe_partial(raw + inputmargin, decompress, EROFS_BLKSIZ - inputmargin, last_cluster_size, EROFS_BLKSIZ * 1024);
+		len = LZ4_decompress_safe(raw, decompress, map->m_plen, EROFS_BLKSIZ * 1024);
 		erofs_warn("decoded %d bytes into decompress", len);
 		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
 	}
@@ -343,7 +401,7 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 		erofs_err("Compress to get size failed\n");
 		return -1;
 	}
-	*last_cluster_compressed_size += len;
+	*last_cluster_compressed_size = len;
 	erofs_warn("last cluster compressed size: %lu", *last_cluster_compressed_size);
 	return 0;
 }
@@ -977,21 +1035,11 @@ static unsigned determine_file_category_by_size(unsigned long filesize) {
 
 }
 
-enum {
-	TXTFILETYPE = 0,
-	MP4FILETYPR,
-	OTHERFILETYPE,
-};
 
-static char *file_types[] = {
-	".txt",
-	".mp4",
-	"others"
-};
 static unsigned determine_file_category_by_postfix(const char *filename) {
 	
 	char *postfix = strrchr(filename, '.');
-	int type = TXTFILETYPE;
+	int type = SOFILETYPE;
 	if (postfix == NULL)
 		return OTHERFILETYPE;
 	while (type < OTHERFILETYPE) {
