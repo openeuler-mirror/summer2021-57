@@ -293,39 +293,57 @@ bogusimode:
 static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
 	int err;
-	erofs_off_t offset = map->m_plen;
+	int len;
+	int inputmargin = 0;
+
+	unsigned pblk_cnt = map->m_plen / EROFS_BLKSIZ;
+	erofs_off_t offset = map->m_pa;
 	char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
 	char decompress[EROFS_BLKSIZ * 1024] = {0};
 
-	erofs_err("offset: %lu index: %u m_pa: 0x%lx size: %lu", offset, map->index, map->m_pa, last_cluster_size);
-	err = dev_read(raw, map->m_pa, EROFS_BLKSIZ);
-	if (err) {
-		erofs_err("Read Block:  for  bytes Failed");
-		return err;
-	}
+	*last_cluster_compressed_size = (pblk_cnt - 1) * EROFS_BLKSIZ;
+	for (int i = pblk_cnt; i > 0; i--) {
+		erofs_err("m_plen: %lu index: %u m_pa: 0x%lx size: %lu", map->m_plen, map->index, map->m_pa, last_cluster_size);
+		err = dev_read(raw, offset, EROFS_BLKSIZ);
+		if (err) {
+			erofs_err("Read Block:  for  bytes Failed");
+			return err;
+		}
 
-	int inputmargin = 0;
-	if (erofs_sb_has_lz4_0padding()) {
-		while (!raw[inputmargin & ~PAGE_MASK])
-			if (!(++inputmargin & ~PAGE_MASK))
-				break;
+		inputmargin = 0;
+		if (erofs_sb_has_lz4_0padding()) {
+			while (!raw[inputmargin & ~PAGE_MASK])
+				if (!(++inputmargin & ~PAGE_MASK))
+					break;
 
-		if (inputmargin >= EROFS_BLKSIZ)
-			return -EIO;
+			if (inputmargin >= EROFS_BLKSIZ)
+				return -EIO;
+		}
+
+		if (i == 1)
+			break;
+
+		len = LZ4_decompress_safe(raw, decompress, EROFS_BLKSIZ, EROFS_BLKSIZ * 1024);
+		if (len < 0) {
+			erofs_err("Decompress Block Failed, input margin: %d, i %d", inputmargin, i);
+			return len;
+		}
+		erofs_warn("len: %d blk_cnt: %d\n", len, pblk_cnt - i);
+		offset += EROFS_BLKSIZ;
+		last_cluster_size -= len;
 	}
-	int ret;
-	ret = LZ4_decompress_safe_partial(raw + inputmargin, decompress, EROFS_BLKSIZ, last_cluster_size, EROFS_BLKSIZ * 1024);
-	if (ret < 0) {
-		erofs_err("Decompress Block Failed: %d\n", ret);
-		return ret;
+	if (inputmargin != 0)
+		len = EROFS_BLKSIZ;
+	else {
+		len = LZ4_decompress_safe_partial(raw + inputmargin, decompress, EROFS_BLKSIZ - inputmargin, last_cluster_size, EROFS_BLKSIZ * 1024);
+		erofs_warn("decoded %d bytes into decompress", len);
+		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
 	}
-	
-	erofs_warn("decoded %d bytes into decompress", ret);
-	*last_cluster_compressed_size = LZ4_compress_destSize(decompress, raw, &ret, EROFS_BLKSIZ * 2);
-	if (*last_cluster_compressed_size <= 0) {
+	if (len <= 0) {
 		erofs_err("Compress to get size failed\n");
 		return -1;
 	}
+	*last_cluster_compressed_size += len;
 	erofs_warn("last cluster compressed size: %lu", *last_cluster_compressed_size);
 	return 0;
 }
