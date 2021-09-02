@@ -589,7 +589,7 @@ static void dumpfs_print_inode()
 	}
 
 	time_t t = inode.i_ctime;
-	fprintf(stderr, "File create time:	%s\n", ctime(&t));
+	fprintf(stderr, "File create time:	%s", ctime(&t));
 	fprintf(stderr, "File uid:		%u\n", inode.i_uid);
 	fprintf(stderr, "File gid:		%u\n", inode.i_gid);
 	fprintf(stderr, "File hard-link count:	%u\n", inode.i_nlink);
