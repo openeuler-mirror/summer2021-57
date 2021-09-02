@@ -37,6 +37,39 @@ struct dumpcfg {
 static struct dumpcfg dumpcfg;
 
 // statistic info
+static char chart_format[] = "	%s	:	%d	%.1f%%	|%s												|\n";
+// enum {
+	// FILELESS4K = 0,
+	// FILELESS8K,
+	// FILELESS12K,
+	// FILELESS16K,
+	// FILELESS20K,
+	// FILELESS24K,
+	// FILELESS28K,
+	// FILELESS32K,
+	// FILELESS64K,
+	// FILELESS128K,
+	// FILELESS256K,
+	// FILELESS512K,
+	// FILELESS1M,
+	// FILEBIGGER,
+// };
+// static char *filesize_types[] = {
+	// "  0KB - 4KB",
+	// "  4KB - 8KB",
+	// "  8KB - 12KB",
+	// " 12KB - 16KB",
+	// " 16KB - 20KB",
+	// " 20KB - 24KB",
+	// " 24KB - 28KB",
+	// " 28KB - 32KB",
+	// " 32KB - 64KB",
+	// " 64KB - 128KB",
+	// "128KB - 256KB",
+	// "256KB - 512KB",
+	// "512KB - 1MB",
+	// "      > 1MB"
+// };
 static char *file_types[] = {
 	".so",
 	".png",
@@ -56,38 +89,6 @@ static char *file_types[] = {
 	".otf",
 	".txt",
 	"others",
-};
-enum {
-	FILELESS4K = 0,
-	FILELESS8K,
-	FILELESS12K,
-	FILELESS16K,
-	FILELESS20K,
-	FILELESS24K,
-	FILELESS28K,
-	FILELESS32K,
-	FILELESS64K,
-	FILELESS128K,
-	FILELESS256K,
-	FILELESS512K,
-	FILELESS1M,
-	FILEBIGGER,
-};
-static char *filesize_types[] = {
-	"  0KB - 4KB",
-	"  4KB - 8KB",
-	"  8KB - 12KB",
-	" 12KB - 16KB",
-	" 16KB - 20KB",
-	" 20KB - 24KB",
-	" 24KB - 28KB",
-	" 28KB - 32KB",
-	" 32KB - 64KB",
-	" 64KB - 128KB",
-	"128KB - 256KB",
-	"256KB - 512KB",
-	"512KB - 1MB",
-	"      > 1MB"
 };
 enum {
 	SOFILETYPE = 0,
@@ -130,11 +131,12 @@ struct statistics {
 	unsigned int partial_used_block;
 	unsigned long wasted_fragment_bytes;
 
-	// 0 - 4, 4 - 8, ..., 28 - 32 | 32 - 64, 64 - 128, ..., 512 - 1024 | > 1024
-	unsigned int file_count_categorized_by_original_size[FILEBIGGER + 1];
-	unsigned int file_count_categorized_by_compressed_size[FILEBIGGER + 1];
-
+	//unsigned int file_count_categorized_by_original_size[FILEBIGGER + 1];
+	//unsigned int file_count_categorized_by_compressed_size[FILEBIGGER + 1];
 	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
+
+	unsigned int file_original_size_counts[30];
+	unsigned int file_actual_size_counts[30];
 };
 static struct statistics statistics;
 
@@ -184,14 +186,8 @@ static void usage(void)
 static void dumpfs_print_version()
 {
 	// TODO
-	// fprintf(stderr, "VERSION INFO\n");
-	// print version info
 	fprintf(stderr, "dump.erofs %s\n", cfg.c_version);
 }
-//static void parse_extended_opts(const char *opts)
-//{
-//	// TODO
-//}
 
 static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
@@ -439,7 +435,6 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 		case EROFS_INODE_FLAT_COMPRESSION:
 			statistics.compress_files++;
-
 			err = z_erofs_get_compressed_filesize(inode, size);
 			if (err) {
 				erofs_err("Get compressed file size failed\n");
@@ -636,7 +631,6 @@ static void dumpfs_print_inode()
 
 	time_t t = inode.i_ctime;
 	fprintf(stderr, "File create time:	%s\n", ctime(&t));
-	
 	fprintf(stderr, "File uid:		%u\n", inode.i_uid);
 	fprintf(stderr, "File gid:		%u\n", inode.i_gid);
 	fprintf(stderr, "File hard-link count:	%u\n", inode.i_nlink);
@@ -718,20 +712,20 @@ static void dumpfs_print_inode_phy()
 	return;
 }
 
-static unsigned determine_file_category_by_size(unsigned long filesize) {
-	if (filesize >= 1024 * 1024)
-		return FILEBIGGER;
-	else if (filesize >= 32 * 1024) {
-		unsigned fs = filesize, count = 0;
-		while (fs >= 64 * 1024) {
-			fs /= 2;
-			count++;
-		}
-		return FILELESS64K + count;
-	}
-	else 
-		return FILELESS4K + filesize / (4 * 1024);
-}
+// static unsigned determine_file_category_by_size(unsigned long filesize) {
+	// if (filesize >= 1024 * 1024)
+		// return FILEBIGGER;
+	// else if (filesize >= 32 * 1024) {
+		// unsigned fs = filesize, count = 0;
+		// while (fs >= 64 * 1024) {
+			// fs /= 2;
+			// count++;
+		// }
+		// return FILELESS64K + count;
+	// }
+	// else 
+		// return FILELESS4K + filesize / (4 * 1024);
+// }
 
 static unsigned determine_file_category_by_postfix(const char *filename) {
 	
@@ -805,7 +799,9 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			if (de->nid != nid && de->nid != parent_nid)
 				statistics.files++;
 
-			erofs_off_t actual_size = 0;
+			erofs_off_t actual_size;
+			erofs_off_t original_size;
+			int actual_size_mark, original_size_mark;
 			memset(filename, 0, PATH_MAX + 1);
 			memcpy(filename, de_name, de_namelen);
 			switch (de->file_type) {
@@ -818,7 +814,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					fprintf(stderr, "read reg file inode failed!\n");
 					return ret;
 				}
-				statistics.files_total_origin_size += inode.i_size;
+				original_size = inode.i_size;
+				statistics.files_total_origin_size += original_size;
 				statistics.regular_files++;
 				ret = erofs_get_file_actual_size(&inode, &actual_size);
 				if (ret) {
@@ -831,9 +828,34 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				}
 				statistics.files_total_size += actual_size;
 				
-				statistics.file_count_categorized_by_original_size[determine_file_category_by_size(inode.i_size)]++;
-				statistics.file_count_categorized_by_compressed_size[determine_file_category_by_size(actual_size)]++;
+				//statistics.file_count_categorized_by_original_size[determine_file_category_by_size(inode.i_size)]++;
+				//statistics.file_count_categorized_by_compressed_size[determine_file_category_by_size(actual_size)]++;
 				statistics.file_count_categorized_by_postfix[determine_file_category_by_postfix(filename)]++;
+
+				original_size_mark = 0;
+				actual_size_mark = 0;
+				actual_size >>= 10;
+				original_size >>= 10;
+				while (actual_size || original_size) {
+					if (actual_size) {
+						actual_size >>= 1;
+						original_size_mark++;
+					}
+					if (original_size) {
+						original_size >>= 1;
+						original_size_mark++;
+					}
+				}
+
+				if (original_size_mark >= 29)
+					statistics.file_original_size_counts[29]++;
+				else
+					statistics.file_original_size_counts[original_size_mark]++;
+				if (actual_size_mark >= 29)
+					statistics.file_actual_size_counts[29]++;
+				else
+					statistics.file_actual_size_counts[actual_size_mark]++;
+
 				break;	
 
 			case EROFS_FT_DIR:
@@ -869,6 +891,57 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 	return 0;
 }
 
+static void dumpfs_print_statistic_of_filetype()
+{
+	// file type count
+	fprintf(stderr, "Filesystem Files:		%lu\n", statistics.files);
+	fprintf(stderr, "Filesystem Regular Files:	%lu\n", statistics.regular_files);
+	fprintf(stderr, "Filesystem Dir Files:		%lu\n", statistics.dir_files);
+	fprintf(stderr, "Filesystem CharDev Files:	%lu\n", statistics.chardev_files);
+	fprintf(stderr, "Filesystem BlkDev Files:	%lu\n", statistics.blkdev_files);
+	fprintf(stderr, "Filesystem FIFO Files:		%lu\n", statistics.fifo_files);
+	fprintf(stderr, "Filesystem SOCK Files:		%lu\n", statistics.sock_files);
+	fprintf(stderr, "Filesystem Link Files:		%lu\n", statistics.symlink_files);
+}
+static void dumpfs_print_chart_row(char *col1, unsigned col2, double col3, char *col4)
+{
+	char row[500] = {0};
+	sprintf(row, chart_format, col1, col2, col3, col4);
+	fprintf(stderr, row);
+	return;
+}
+
+static void dumpfs_print_chart_of_file()
+{
+	char col1[30];
+	unsigned col2;
+	double col3;
+	char col4[400];
+	unsigned lowerbound = 0, upperbound = 1;
+	for (int i = 0; i <= 29; i++) {
+		memset(col1, 0, 30);
+		memset(col4, 0, 400);
+		if (i == 29)
+			strcpy(col1, "	Others	");
+		else
+			sprintf(col1, "%8d .. %d	", lowerbound, upperbound);
+		col2 = statistics.file_original_size_counts[i];
+		col3 = (double)(100 * col2) / (double)statistics.files;
+		memset(col4, '#', col3 * 4);
+		dumpfs_print_chart_row(col1, col2, col3, col4);
+	}
+}
+
+static void dumpfs_print_statistic_of_compression()
+{
+	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compress_files);
+	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompress_files);
+	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
+
+	statistics.compress_rate = (double)(100 * statistics.files_total_size) / (double)(statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
+}
 
 static void dumpfs_print_statistic()
 {
@@ -881,7 +954,6 @@ static void dumpfs_print_statistic()
 		fprintf(stderr, "look for root inode failed!");
 		return;
 	}
-	//blocks info
 	statistics.blocks = sbi.blocks;
 	
 	err = read_dir(sbi.root_nid, sbi.root_nid);
@@ -889,92 +961,81 @@ static void dumpfs_print_statistic()
 		fprintf(stderr, "read root dir failed!");
 		return;
 	}
-	// file type count
-	fprintf(stderr, "Filesystem Files:		%lu\n", statistics.files);
-	fprintf(stderr, "Filesystem Regular Files:	%lu\n", statistics.regular_files);
-	fprintf(stderr, "Filesystem Dir Files:		%lu\n", statistics.dir_files);
-	fprintf(stderr, "Filesystem CharDev Files:	%lu\n", statistics.chardev_files);
-	fprintf(stderr, "Filesystem BlkDev Files:	%lu\n", statistics.blkdev_files);
-	fprintf(stderr, "Filesystem FIFO Files:		%lu\n", statistics.fifo_files);
-	fprintf(stderr, "Filesystem SOCK Files:		%lu\n", statistics.sock_files);
-	fprintf(stderr, "Filesystem Link Files:		%lu\n", statistics.symlink_files);
-	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compress_files);
-	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompress_files);
-	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
-	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
 
-	statistics.compress_rate = (double)(100 * statistics.files_total_size) / (double)(statistics.files_total_origin_size);
-	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
+	dumpfs_print_statistic_of_filetype();
+	dumpfs_print_statistic_of_compression();
 
-	fprintf(stderr, "Filesystem filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
-	char units[] = "@#*=-";
-	char *symbols = NULL; 
-	unsigned original_counts[5] = {0};
-	//unsigned compressed_counts[5] = {0};
-	fprintf(stderr, "Original filesize distribution: \n");
-	for (int i = 0; i < 14; i++) {
-		original_counts[0] = statistics.file_count_categorized_by_original_size[i] / 10000;
-		original_counts[1] = (statistics.file_count_categorized_by_original_size[i] % 10000) / 1000;
-		original_counts[2] = (statistics.file_count_categorized_by_original_size[i] % 1000) / 100;
-		original_counts[3] = (statistics.file_count_categorized_by_original_size[i] % 100) / 10;
-		original_counts[4] = statistics.file_count_categorized_by_original_size[i] % 10;
+	fprintf(stderr, "		>=(KB) .. <(KB)	:	count	ratio	|distribution												|\n");
+	dumpfs_print_chart_of_file();
+	// char units[] = "@#*=-";
+	// char *symbols = NULL; 
+	// unsigned original_counts[5] = {0};
+	// //unsigned compressed_counts[5] = {0};
+	// fprintf(stderr, "Filesystem filesize distribution: @:10000, #:1000, *:100, =:10, -:1\n");
+	// fprintf(stderr, "Original filesize distribution: \n");
+	// for (int i = 0; i < 30; i++) {
+		// original_counts[0] = statistics.file_count_categorized_by_original_size[i] / 10000;
+		// original_counts[1] = (statistics.file_count_categorized_by_original_size[i] % 10000) / 1000;
+		// original_counts[2] = (statistics.file_count_categorized_by_original_size[i] % 1000) / 100;
+		// original_counts[3] = (statistics.file_count_categorized_by_original_size[i] % 100) / 10;
+		// original_counts[4] = statistics.file_count_categorized_by_original_size[i] % 10;
 
-		fprintf(stderr, "%s:	", filesize_types[i]);
-		for (int i = 0; i < 5; i++) {
-			if (original_counts[i]) {
-				symbols = malloc(original_counts[i] + 1);
-				memset(symbols, units[i], original_counts[i]);
-				symbols[original_counts[i]] = 0;
-				fprintf(stderr, symbols);
-				free(symbols);
-			}
-		}
-		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_original_size[i]);
-	}
+		// fprintf(stderr, "%s:	", filesize_types[i]);
+		// for (int i = 0; i < 5; i++) {
+			// if (original_counts[i]) {
+				// symbols = malloc(original_counts[i] + 1);
+				// memset(symbols, units[i], original_counts[i]);
+				// symbols[original_counts[i]] = 0;
+				// fprintf(stderr, symbols);
+				// free(symbols);
+			// }
+		// }
+		// fprintf(stderr, " %u\n", statistics.file_count_categorized_by_original_size[i]);
+	// }
 
-	unsigned compressed_counts[5] = {0};
-	fprintf(stderr, "Compressed fileszie distribution: \n");
-	for (int i = 0; i <= FILEBIGGER; i++) {
-		compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
-		compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
-		compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
-		compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
-		compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
+	// unsigned compressed_counts[5] = {0};
+	// fprintf(stderr, "Compressed fileszie distribution: \n");
+	// for (int i = 0; i <= FILEBIGGER; i++) {
+		// compressed_counts[0] = statistics.file_count_categorized_by_compressed_size[i] / 10000;
+		// compressed_counts[1] = (statistics.file_count_categorized_by_compressed_size[i] % 10000) / 1000;
+		// compressed_counts[2] = (statistics.file_count_categorized_by_compressed_size[i] % 1000) / 100;
+		// compressed_counts[3] = (statistics.file_count_categorized_by_compressed_size[i] % 100) / 10;
+		// compressed_counts[4] = statistics.file_count_categorized_by_compressed_size[i] % 10;
 
-		fprintf(stderr, "%s:	", filesize_types[i]);
-		for (int i = 0; i < 5; i++) {
-			if (compressed_counts[i]) {
-				symbols = malloc(compressed_counts[i] + 1);
-				memset(symbols, units[i], compressed_counts[i]);
-				symbols[compressed_counts[i]] = 0;
-				fprintf(stderr, symbols);
-				free(symbols);
-			}	
-		}
-		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);	
-	}
+		// fprintf(stderr, "%s:	", filesize_types[i]);
+		// for (int i = 0; i < 5; i++) {
+			// if (compressed_counts[i]) {
+				// symbols = malloc(compressed_counts[i] + 1);
+				// memset(symbols, units[i], compressed_counts[i]);
+				// symbols[compressed_counts[i]] = 0;
+				// fprintf(stderr, symbols);
+				// free(symbols);
+			// }	
+		// }
+		// fprintf(stderr, " %u\n", statistics.file_count_categorized_by_compressed_size[i]);	
+	// }
 
-	fprintf(stderr, "File type distribution: @:10000, #:1000, *:100, =:10, -:1\n");
-	unsigned counts[5] = {0};
-	for (int i = 0; i <= OTHERFILETYPE; i++) {
-		counts[0] = statistics.file_count_categorized_by_postfix[i] / 10000;
-		counts[1] = (statistics.file_count_categorized_by_postfix[i] % 10000) / 1000;
-		counts[2] = (statistics.file_count_categorized_by_postfix[i] % 1000) / 100;
-		counts[3] = (statistics.file_count_categorized_by_postfix[i] % 100) / 10;
-		counts[4] = statistics.file_count_categorized_by_postfix[i] % 10;	
+	//fprintf(stderr, "File type distribution: @:10000, #:1000, *:100, =:10, -:1\n");
+	//unsigned counts[5] = {0};
+	//for (int i = 0; i <= OTHERFILETYPE; i++) {
+		//counts[0] = statistics.file_count_categorized_by_postfix[i] / 10000;
+		//counts[1] = (statistics.file_count_categorized_by_postfix[i] % 10000) / 1000;
+		//counts[2] = (statistics.file_count_categorized_by_postfix[i] % 1000) / 100;
+		//counts[3] = (statistics.file_count_categorized_by_postfix[i] % 100) / 10;
+		//counts[4] = statistics.file_count_categorized_by_postfix[i] % 10;	
 
-		fprintf(stderr, "%s:	", file_types[i]);
-		for (int i = 0; i < 5; i++) {
-			if (counts[i]) {
-				symbols = malloc(counts[i] + 1);
-				memset(symbols, units[i], counts[i]);
-				symbols[counts[i]] = 0;
-				fprintf(stderr, symbols);
-				free(symbols);
-			}	
-		}	
-		fprintf(stderr, " %u\n", statistics.file_count_categorized_by_postfix[i]);
-	}
+		//fprintf(stderr, "%s:	", file_types[i]);
+		//for (int i = 0; i < 5; i++) {
+			//if (counts[i]) {
+				//symbols = malloc(counts[i] + 1);
+				//memset(symbols, units[i], counts[i]);
+				//symbols[counts[i]] = 0;
+				//fprintf(stderr, symbols);
+				//free(symbols);
+			//}	
+		//}	
+		//fprintf(stderr, " %u\n", statistics.file_count_categorized_by_postfix[i]);
+	//}
 	return;
 }
 
