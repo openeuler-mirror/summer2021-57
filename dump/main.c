@@ -1039,6 +1039,7 @@ static unsigned determine_file_category_by_size(unsigned long filesize) {
 static unsigned determine_file_category_by_postfix(const char *filename) {
 	
 	char *postfix = strrchr(filename, '.');
+	erofs_warn("%s", postfix);
 	int type = SOFILETYPE;
 	if (postfix == NULL)
 		return OTHERFILETYPE;
@@ -1056,6 +1057,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 	struct erofs_inode vi = { .nid = nid};
 	int ret;
 	char buf[EROFS_BLKSIZ];
+	char filename[PATH_MAX + 1];
 	erofs_off_t offset;
 	
 	//fprintf(stderr, "read_dir: %lu\n", nid);
@@ -1100,7 +1102,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				de_namelen = strnlen(de_name, maxsize - nameoff);
 			else
 				de_namelen = le16_to_cpu(de[1].nameoff) - nameoff;
-
+			
 			/* a corrupted entry is found */
 			if (nameoff + de_namelen > maxsize ||
 				de_namelen > EROFS_NAME_LEN) {
@@ -1112,6 +1114,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				statistics.files++;
 
 			erofs_off_t actual_size = 0;
+			memset(filename, 0, PATH_MAX + 1);
+			memcpy(filename, de_name, de_namelen);
 			switch (de->file_type) {
 			
 			case EROFS_FT_UNKNOWN:
@@ -1138,7 +1142,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				
 				statistics.file_count_categorized_by_original_size[determine_file_category_by_size(inode.i_size)]++;
 				statistics.file_count_categorized_by_compressed_size[determine_file_category_by_size(actual_size)]++;
-				statistics.file_count_categorized_by_postfix[determine_file_category_by_postfix(de_name)]++;
+				statistics.file_count_categorized_by_postfix[determine_file_category_by_postfix(filename)]++;
 				break;	
 
 			case EROFS_FT_DIR:
