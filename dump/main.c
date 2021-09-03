@@ -37,7 +37,7 @@ struct dumpcfg {
 static struct dumpcfg dumpcfg;
 
 // statistic info
-static char chart_format[] = "%s	: %d	%.1f%%	|%s												|\n";
+static char chart_format[] = "%s	: %d		%.1f%%	|%s												|\n";
 static char *file_types[] = {
 	".so",
 	".png",
@@ -339,7 +339,6 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 		len = map->m_plen;
 	else {
 		len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, EROFS_BLKSIZ * 1536);
-		erofs_warn("decoded %d bytes into decompress", len);
 		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
 	}
 	if (len <= 0) {
@@ -347,7 +346,6 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 		return -1;
 	}
 	*last_cluster_compressed_size = len;
-	erofs_warn("last cluster compressed size: %lu", *last_cluster_compressed_size);
 	return 0;
 }
 
@@ -673,7 +671,6 @@ static void dumpfs_print_inode_phy()
 static unsigned determine_file_category_by_postfix(const char *filename) {
 	
 	char *postfix = strrchr(filename, '.');
-	erofs_warn("%s", postfix);
 	int type = SOFILETYPE;
 	if (postfix == NULL)
 		return OTHERFILETYPE;
@@ -932,14 +929,14 @@ static void dumpfs_print_statistic()
 	dumpfs_print_statistic_of_compression();
 
 	fprintf(stderr, "\nOriginal file size distribution:	\n");
-	fprintf(stderr, "   >=(KB) .. <(KB)		: count	ratio	|distribution												|\n");
+	fprintf(stderr, "   >=(KB) .. <(KB)		: count		ratio	|distribution												|\n");
 	dumpfs_print_chart_of_file(statistics.file_original_size_counts, 30);
 	fprintf(stderr, "\nOn-Disk file size distribution:	\n");
-	fprintf(stderr, "   >=(KB) .. <(KB)		: count	ratio	|distribution												|\n");
+	fprintf(stderr, "   >=(KB) .. <(KB)		: count		ratio	|distribution												|\n");
 	dumpfs_print_chart_of_file(statistics.file_actual_size_counts, 30);
 	
 	fprintf(stderr, "\nFile type distribution:		\n");
-	fprintf(stderr, "	type			: count	ratio	|distribution													|\n");
+	fprintf(stderr, "	type			: count		ratio	|distribution													|\n");
 	dumpfs_print_chart_of_file_type(file_types, OTHERFILETYPE + 1);
 	return;
 }
