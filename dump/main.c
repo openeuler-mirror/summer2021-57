@@ -6,6 +6,7 @@
 *             http://www.huawei.com/
 * Created by Wang Qi <mpiglet@outlook.com>
 */
+
 #include <time.h>
 #include <getopt.h>
 #include <stdlib.h>
@@ -14,8 +15,6 @@
 
 #include "erofs/print.h"
 #include "erofs/io.h"
-
-#define EROFS_SUPER_END (EROFS_SUPER_OFFSET + sizeof(struct erofs_super_block))
 
 extern struct erofs_inode *erofs_new_inode(void);
 struct dumpcfg {
@@ -102,16 +101,6 @@ static struct option long_options[] = {
 	{0, 0, 0, 0},
 };
 
-#define Z_EROFS_LEGACY_MAP_HEADER_SIZE	\
-	(sizeof(struct z_erofs_map_header) + Z_EROFS_VLE_LEGACY_HEADER_PADDING)
-
-static unsigned int vle_compressmeta_capacity(erofs_off_t filesize)
-{
-	const unsigned int indexsize = BLK_ROUND_UP(filesize) *
-		sizeof(struct z_erofs_vle_decompressed_index);
-
-	return Z_EROFS_LEGACY_MAP_HEADER_SIZE + indexsize;
-}
 
 struct z_erofs_maprecorder {
 	struct erofs_inode *inode;
@@ -606,11 +595,13 @@ static void dumpfs_print_inode_phy()
 
 	const erofs_off_t ibase = iloc(inode.nid);
 	const erofs_off_t pos = Z_EROFS_VLE_LEGACY_INDEX_ALIGN(ibase + inode.inode_isize + inode.xattr_isize);
-	struct z_erofs_vle_decompressed_index *first;
 	erofs_blk_t blocks = inode.u.i_blocks;
 	erofs_blk_t start = 0;
 	erofs_blk_t end = 0;
-	void *compressdata;
+	struct erofs_map_blocks map = {
+		.index = UINT_MAX,
+		.m_la = 0,
+	};
 	switch (inode.datalayout) {
 	case EROFS_INODE_FLAT_INLINE:
 	case EROFS_INODE_FLAT_PLAIN:
@@ -628,21 +619,9 @@ static void dumpfs_print_inode_phy()
 	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 	case EROFS_INODE_FLAT_COMPRESSION:
 		
-		inode.extent_isize = vle_compressmeta_capacity(inode.i_size);
-		compressdata = malloc(inode.extent_isize);
-		if (!compressdata) {
-			erofs_err("memory allocation for reading extent failed");
-			return;
-		}
-		
-		err = dev_read(compressdata, pos, sizeof(struct z_erofs_vle_decompressed_index));
-		if (err < 0) {
-			erofs_err("read extent metadata failed");
-			return;
-		}
+		err = z_erofs_map_blocks_iter(&inode, &map);
 
-		first = compressdata;
-		start = first->di_u.blkaddr;
+		start = erofs_blknr(map.m_pa);
 		end = start - 1 + blocks;
 		fprintf(stderr, "Compressed Block Address:		%u - %u\n", start, end);
 		break;
