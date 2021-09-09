@@ -18,7 +18,6 @@
 #define EROFS_SUPER_END (EROFS_SUPER_OFFSET + sizeof(struct erofs_super_block))
 
 extern struct erofs_inode *erofs_new_inode(void);
-//dumpfs config
 struct dumpcfg {
 	bool print_superblock;
 	bool print_inode;
@@ -27,11 +26,9 @@ struct dumpcfg {
 	bool print_version; 
 
 	u64 ino;
-	u64 nid;
 };
 static struct dumpcfg dumpcfg;
 
-// statistic info
 static char chart_format[] = "%s	: %d		%.1f%%	|%s												|\n";
 static char *file_types[] = {
 	".so",
@@ -105,7 +102,6 @@ static struct option long_options[] = {
 	{0, 0, 0, 0},
 };
 
-// used to get extent info
 #define Z_EROFS_LEGACY_MAP_HEADER_SIZE	\
 	(sizeof(struct z_erofs_map_header) + Z_EROFS_VLE_LEGACY_HEADER_PADDING)
 
@@ -145,7 +141,6 @@ static void usage(void)
 }
 static void dumpfs_print_version()
 {
-	// TODO
 	fprintf(stderr, "dump.erofs %s\n", cfg.c_version);
 }
 
@@ -337,7 +332,7 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
 	}
 	if (len < 0) {
-		erofs_err("Compress to get size failed\n");
+		erofs_err("compress to get last extent size failed\n");
 		return -1;
 	}
 	*last_cluster_compressed_size = len;
@@ -358,7 +353,7 @@ static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_
 
 	err = z_erofs_map_blocks_iter(inode, &map);
 	if (err) {
-		erofs_err("read last block failed\n");
+		erofs_err("read nid%ld's last block failed\n", inode->nid);
 		return err;
 	}
 	compressedlcs = map.m_plen >> inode->z_logical_clusterbits;
@@ -371,7 +366,7 @@ static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_
 	else {
 		err = z_erofs_get_last_cluster_size_from_disk_new(&map, last_cluster_size, &last_cluster_compressed_size);
 		if (err) {
-			erofs_err("get last size failed");
+			erofs_err("get nid%ld's last extent size failed", inode->nid);
 			return err;
 		}
 		*size += last_cluster_compressed_size;
@@ -393,7 +388,7 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 			statistics.compress_files++;
 			err = z_erofs_get_compressed_filesize(inode, size);
 			if (err) {
-				erofs_err("Get compressed file size failed\n");
+				erofs_err("get compressed file size failed\n");
 				return err;
 			}
 	}
@@ -435,7 +430,7 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
 	err = erofs_read_inode_from_disk(&inode);
 
 	if (err) {
-		fprintf(stderr, "read inode error\n");
+		fprintf(stderr, "read inode%ld error\n", nid);
 		return err;
 	}
 
@@ -516,7 +511,7 @@ static void dumpfs_print_inode()
 
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
-		fprintf(stderr, "error occured\n");
+		erofs_err("read inode%lu from disk failed", nid);
 		return;
 	}
 
@@ -605,7 +600,7 @@ static void dumpfs_print_inode_phy()
 
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
-		fprintf(stderr, "error occured\n");
+		erofs_err("read inode%lu from disk failed", nid);
 		return;
 	}
 
@@ -636,13 +631,13 @@ static void dumpfs_print_inode_phy()
 		inode.extent_isize = vle_compressmeta_capacity(inode.i_size);
 		compressdata = malloc(inode.extent_isize);
 		if (!compressdata) {
-			fprintf(stderr, "malloc failed!\n");
+			erofs_err("memory allocation for reading extent failed");
 			return;
 		}
 		
 		err = dev_read(compressdata, pos, sizeof(struct z_erofs_vle_decompressed_index));
 		if (err < 0) {
-			fprintf(stderr, "read compressmeta failed!\n");
+			erofs_err("read extent metadata failed");
 			return;
 		}
 
@@ -658,7 +653,7 @@ static void dumpfs_print_inode_phy()
 		fprintf(stderr, "File Path:		%s\n", path);
 	}
 	else
-		fprintf(stderr, "File Path Not Found\n");
+		erofs_err("file path not found");
 
 	return;
 }
@@ -718,7 +713,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			nameoff = le16_to_cpu(de->nameoff);
 			de_name = (char *)buf + nameoff;
 
-			/* the last dirent in the block? */
 			if (de + 1 >= end)
 				de_namelen = strnlen(de_name, maxsize - nameoff);
 			else
@@ -747,6 +741,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				ret = erofs_read_inode_from_disk(&inode);
 				if (ret) {
 					fprintf(stderr, "read reg file inode failed!\n");
+					erofs_err("Read file inode from disk failed!");
 					return ret;
 				}
 				original_size = inode.i_size;
@@ -758,13 +753,11 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					return ret;
 				}
 				if (actual_size < 0) {
-					fprintf(stderr, "error occured getting actual size\n");
+					erofs_err("Get file on-disk size failed!");
 					return -EIO;
 				}
 				statistics.files_total_size += actual_size;
 				
-				//statistics.file_count_categorized_by_original_size[determine_file_category_by_size(inode.i_size)]++;
-				//statistics.file_count_categorized_by_compressed_size[determine_file_category_by_size(actual_size)]++;
 				statistics.file_count_categorized_by_postfix[determine_file_category_by_postfix(filename)]++;
 
 				original_size_mark = 0;
@@ -909,14 +902,14 @@ static void dumpfs_print_statistic()
 	root_inode = erofs_new_inode();
 	err = erofs_ilookup("/", root_inode);
 	if (err) {
-		fprintf(stderr, "look for root inode failed!");
+		erofs_err("look for root inode failed");
 		return;
 	}
 	statistics.blocks = sbi.blocks;
 	
 	err = read_dir(sbi.root_nid, sbi.root_nid);
 	if (err) {
-		fprintf(stderr, "read root dir failed!");
+		erofs_err("read dir failed");
 		return;
 	}
 
@@ -939,40 +932,31 @@ static void dumpfs_print_statistic()
 int main(int argc, char** argv) 
 {
 	int err = 0;
-	struct erofs_inode *root_inode;
-	// init config
 	erofs_init_configure();
 
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
-		fprintf(stderr, "parse config failed\n");
+		erofs_err("parse config failed");
 		if (err == -EINVAL)
 			usage();
-		return 1;
+		return -1;
 	}
 
 	// open image
 	err = dev_open_ro(cfg.c_img_path);
 	if (err) {
-		fprintf(stderr, "failed to open: %s\n", cfg.c_img_path);
-		return 1;
+		erofs_err("open image file failed");
+		return -1;
 	}
 
 	err = erofs_read_superblock();
 	if (err) {
-		fprintf(stderr, "failed to read erofs super block\n");
-		return 1;
+		erofs_err("read superblock failed");
+		return -1;
 	}	
 
 	if (dumpcfg.print_superblock) {
 		dumpfs_print_superblock();
-	}
-
-	root_inode = erofs_new_inode();
-	err = erofs_ilookup("/", root_inode);	
-	if (err) {
-		fprintf(stderr, "failed to look up root inode");
-		return 1;
 	}
 
 	if (dumpcfg.print_inode)
