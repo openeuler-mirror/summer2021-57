@@ -7,16 +7,11 @@
 * Created by Wang Qi <mpiglet@outlook.com>
 */
 #include <time.h>
-#include <sys/stat.h>
-#include <sys/time.h>
-#include <libgen.h>
 #include <getopt.h>
 #include <stdlib.h>
 #include <sys/sysmacros.h>
 #include <lz4.h>
 
-#include "erofs/config.h"
-#include "erofs/inode.h"
 #include "erofs/print.h"
 #include "erofs/io.h"
 
