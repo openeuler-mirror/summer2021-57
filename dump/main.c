@@ -339,9 +339,10 @@ static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *
 		len = map->m_plen;
 	else {
 		len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, EROFS_BLKSIZ * 1536);
+		erofs_err("last cluster size: %ld decompress len: %d\n", last_cluster_size, len);
 		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
 	}
-	if (len <= 0) {
+	if (len < 0) {
 		erofs_err("Compress to get size failed\n");
 		return -1;
 	}
