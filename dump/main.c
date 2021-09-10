@@ -75,8 +75,8 @@ struct statistics {
 	unsigned long files_total_size;
 	unsigned long files_total_origin_size;
 	double compress_rate;
-	unsigned long compress_files;
-	unsigned long uncompress_files;
+	unsigned long compressed_files;
+	unsigned long uncompressed_files;
 
 	unsigned long regular_files;
 	unsigned long dir_files;
@@ -233,12 +233,12 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 	switch (inode->datalayout) {
 		case EROFS_INODE_FLAT_INLINE:
 		case EROFS_INODE_FLAT_PLAIN:
-			statistics.uncompress_files++;
+			statistics.uncompressed_files++;
 			*size = inode->i_size;
 			break;
 		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 		case EROFS_INODE_FLAT_COMPRESSION:
-			statistics.compress_files++;
+			statistics.compressed_files++;
 			err = z_erofs_get_compressed_size(inode, size);
 			if (err) {
 				erofs_err("get compressed file size failed\n");
@@ -366,27 +366,28 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
 	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
 
+	fprintf(stderr, "File type:		")
 	switch (inode.i_mode & S_IFMT) {
 		case S_IFREG:
-			fprintf(stderr, "File is Regular File\n");
+			fprintf(stderr, "regular\n");
 			break;
 		case S_IFDIR:
-			fprintf(stderr, "File is Directory File\n");
+			fprintf(stderr, "directory\n");
 			break;
 		case S_IFLNK:
-			fprintf(stderr, "File is Link File\n");
+			fprintf(stderr, "link\n");
 			break;
 		case S_IFCHR:
-			fprintf(stderr, "File is CharDev File\n");
+			fprintf(stderr, "character device\n");
 			break;
 		case S_IFBLK:
-			fprintf(stderr, "File is BLKDev File\n");
+			fprintf(stderr, "block device\n");
 			break;
 		case S_IFIFO:
-			fprintf(stderr, "File is FIFO File\n");
+			fprintf(stderr, "fifo\n");
 			break;
 		case S_IFSOCK:
-			fprintf(stderr, "File is Sock File\n");
+			fprintf(stderr, "sock\n");
 			break;
 		default:
 			break;
@@ -398,23 +399,24 @@ static void dumpfs_print_inode()
 		return;
 	}
 
-	fprintf(stderr, "File Original size:	%lu\n"
-			"File On-Disk size:	%lu\n", inode.i_size, size);
+	fprintf(stderr, "File original size:	%lu\n"
+			"File on-disk size:	%lu\n", inode.i_size, size);
 	fprintf(stderr, "File compress rate:	%.2f%%\n", (double)(100 * size) / (double)(inode.i_size));
 
+	fprintf(stderr, "File datalayout:	");
 	switch (inode.datalayout)
 	{
 	case EROFS_INODE_FLAT_PLAIN:
-		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_PLAIN\n");
+		fprintf(stderr, "EROFS_INODE_FLAT_PLAIN\n");
 		break;
 	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
-		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_COMPRESSION_LEGACY\n");
+		fprintf(stderr, "EROFS_INODE_FLAT_COMPRESSION_LEGACY\n");
 		break;
 	case EROFS_INODE_FLAT_INLINE:
-		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_INLINE\n");
+		fprintf(stderr, "EROFS_INODE_FLAT_INLINE\n");
 		break;
 	case EROFS_INODE_FLAT_COMPRESSION:
-		fprintf(stderr, "File datalayout:	EROFS_INODE_FLAT_COMPRESSION\n");
+		fprintf(stderr, "EROFS_INODE_FLAT_COMPRESSION\n");
 		break;
 	default:
 		break;
@@ -428,9 +430,9 @@ static void dumpfs_print_inode()
 
 	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
 	if (!found)
-		fprintf(stderr, "File Path:		%s\n", path);
+		fprintf(stderr, "File path:		%s\n", path);
 	else
-		fprintf(stderr, "File Path Not Found\n");
+		fprintf(stderr, "Path not found\n");
 	return;
 }
 
@@ -440,6 +442,7 @@ static void dumpfs_print_inode_phy()
 	erofs_nid_t nid = dumpcfg.ino_phy;
 	struct erofs_inode inode = {.nid = nid};
 	char path[PATH_MAX + 1] = {0};
+
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
 		erofs_err("read inode %lu from disk failed", nid);
@@ -456,7 +459,7 @@ static void dumpfs_print_inode_phy()
 		.m_la = 0,
 	};
 
-	fprintf(stderr, "Inode %lu on-disk info: \n", nid);
+	fprintf(stderr, "Inode %lu on-disk info:\n", nid);
 	switch (inode.datalayout) {
 	case EROFS_INODE_FLAT_INLINE:
 	case EROFS_INODE_FLAT_PLAIN:
@@ -466,8 +469,8 @@ static void dumpfs_print_inode_phy()
 			start = inode.u.i_blkaddr;
 			end = start + BLK_ROUND_UP(inode.i_size) - 1;
 		}
-		fprintf(stderr, "Inode ino:	%lu\n", inode.i_ino[0]);
-		fprintf(stderr, "Filesize:	%lu\n", inode.i_size);
+		fprintf(stderr, "Inode ino:			%lu\n", inode.i_ino[0]);
+		fprintf(stderr, "Filesize:			%lu\n", inode.i_size);
 		fprintf(stderr, "Plain Block Address:		%u - %u\n", start, end);
 		break;
 
@@ -478,21 +481,21 @@ static void dumpfs_print_inode_phy()
 
 		start = erofs_blknr(map.m_pa);
 		end = start - 1 + blocks;
-		fprintf(stderr, "Compressed Block Address:		%u - %u\n", start, end);
+		fprintf(stderr, "Compressed Block Address:	%u - %u\n", start, end);
 		break;
 	}
 
 	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
 	if (!found) {
-		fprintf(stderr, "File Path:		%s\n", path);
+		fprintf(stderr, "File Path:			%s\n", path);
 	}
 	else
-		erofs_err("file path not found");
+		erofs_err("Path not found");
 
 	return;
 }
 
-static unsigned determine_file_category_by_postfix(const char *filename) {
+static unsigned check_file_category_by_postfix(const char *filename) {
 	
 	char *postfix = strrchr(filename, '.');
 	int type = SOFILETYPE;
@@ -592,7 +595,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				}
 				statistics.files_total_size += actual_size;
 				
-				statistics.file_count_categorized_by_postfix[determine_file_category_by_postfix(filename)]++;
+				statistics.file_count_categorized_by_postfix[check_file_category_by_postfix(filename)]++;
 
 				original_size_mark = 0;
 				actual_size_mark = 0;
@@ -717,8 +720,8 @@ static void dumpfs_print_chart_of_file_type(char **file_types, unsigned len)
 
 static void dumpfs_print_statistic_of_compression()
 {
-	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compress_files);
-	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompress_files);
+	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compressed_files);
+	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompressed_files);
 	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
 	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
 
@@ -784,7 +787,8 @@ int main(int argc, char** argv)
 
 	if (dumpcfg.print_inode)
 		dumpfs_print_inode();
-	else if (dumpcfg.print_inode_phy)
+
+	if (dumpcfg.print_inode_phy)
 		dumpfs_print_inode_phy();
 	
 	if (dumpcfg.print_statistic)
