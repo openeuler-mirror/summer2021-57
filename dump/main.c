@@ -132,7 +132,6 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 			case 'V':
 				dumpfs_print_version();
 				exit(0);
-				break;
 			case 'i':
 				i = atoll(optarg);
 				dumpcfg.print_inode = true;
@@ -169,10 +168,10 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
 	int len;
-	int inputmargin = 0;
-
+	int inputmargin;
 	char *raw = (char*)malloc(map->m_plen);
 	char decompress[EROFS_BLKSIZ * 1536] = {0};
+
 	inputmargin = 0;
 	if (erofs_sb_has_lz4_0padding()) {
 		while (!raw[inputmargin & ~PAGE_MASK])
@@ -194,11 +193,10 @@ static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map,
 	return 0;
 }
 
-static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_t *size)
+static int z_erofs_get_compressed_size(struct erofs_inode *inode, erofs_off_t *size)
 {
 	int err;
 	erofs_blk_t compressedlcs;
-
 	erofs_off_t last_cluster_size;
 	erofs_off_t last_cluster_compressed_size;
 	struct erofs_map_blocks map = {
@@ -208,7 +206,7 @@ static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_
 
 	err = z_erofs_map_blocks_iter(inode, &map);
 	if (err) {
-		erofs_err("read nid%ld's last block failed\n", inode->nid);
+		erofs_err("read nid %ld's last block failed\n", inode->nid);
 		return err;
 	}
 	compressedlcs = map.m_plen >> inode->z_logical_clusterbits;
@@ -221,7 +219,7 @@ static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_
 	else {
 		err = z_erofs_get_last_cluster_size_from_disk(&map, last_cluster_size, &last_cluster_compressed_size);
 		if (err) {
-			erofs_err("get nid%ld's last extent size failed", inode->nid);
+			erofs_err("get nid %ld's last extent size failed", inode->nid);
 			return err;
 		}
 		*size += last_cluster_compressed_size;
@@ -241,7 +239,7 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 		case EROFS_INODE_FLAT_COMPRESSION:
 			statistics.compress_files++;
-			err = z_erofs_get_compressed_filesize(inode, size);
+			err = z_erofs_get_compressed_size(inode, size);
 			if (err) {
 				erofs_err("get compressed file size failed\n");
 				return err;
@@ -254,34 +252,31 @@ static void dumpfs_print_superblock()
 {
 	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
 	fprintf(stderr, "Filesystem blocks: 		%lu\n", sbi.blocks);
-
 	fprintf(stderr, "Filesystem meta block:		%u\n", sbi.meta_blkaddr);
 	fprintf(stderr, "Filesystem xattr block:		%u\n", sbi.xattr_blkaddr);
 	fprintf(stderr, "Filesystem root nid:		%ld\n", sbi.root_nid);
 
 	time_t t = sbi.build_time;
 	fprintf(stderr, "Filesystem created:		%s", ctime(&t));
-
 	fprintf(stderr, "Filesystem inodes count:	%ld\n", sbi.inos);
 	fprintf(stderr, "Filesystem lz4 max distanve:	%d\n", sbi.lz4_max_distance);
-	
 	fprintf(stderr, "Filesystem uuid:		");
 	for (int i = 0; i < 16; i++)
 		fprintf(stderr, "%02x", sbi.uuid[i]);
 	fprintf(stderr, "\n");
 }
 
-static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned mark)
+static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned pos)
 {
-	path[mark++] = '/';
+	int err;
+	struct erofs_inode inode = {.nid = nid};
+	erofs_off_t offset;
+	char buf[EROFS_BLKSIZ];
+
+	path[pos++] = '/';
 	if (target == sbi.root_nid) {
 		return 0;
 	}
-	
-	int err;
-	struct erofs_inode inode = {.nid = nid};
-	unsigned long offset;
-	char buf[EROFS_BLKSIZ];
 
 	err = erofs_read_inode_from_disk(&inode);
 	if (err) {
@@ -331,17 +326,17 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  			}
  
 			if (de->nid == target) {
-				memcpy(path + mark, de_name, de_namelen);
+				memcpy(path + pos, de_name, de_namelen);
 				return 0;
 			}
 
  			if (de->file_type == EROFS_FT_DIR && de->nid != parent_nid && de->nid != nid) {
-				memcpy(path + mark, de_name, de_namelen);
- 				err = erofs_get_path_by_nid(de->nid, nid, target, path, mark + de_namelen);
+				memcpy(path + pos, de_name, de_namelen);
+ 				err = erofs_get_path_by_nid(de->nid, nid, target, path, pos + de_namelen);
 				if (!err) {
 					return 0;
 				}
-				memset(path + mark, 0, de_namelen);
+				memset(path + pos, 0, de_namelen);
  			}
  			++de;
  		}
@@ -359,8 +354,8 @@ static void dumpfs_print_inode()
 	char path[PATH_MAX + 1] = {0};
 
 	err = erofs_read_inode_from_disk(&inode);
-	if (err < 0) {
-		erofs_err("read inode%lu from disk failed", nid);
+	if (err) {
+		erofs_err("read inode %lu from disk failed", nid);
 		return;
 	}
 
@@ -441,12 +436,10 @@ static void dumpfs_print_inode()
 
 static void dumpfs_print_inode_phy()
 {
-	int err = 0;
+	int err;
 	erofs_nid_t nid = dumpcfg.ino_phy;
 	struct erofs_inode inode = {.nid = nid};
 	char path[PATH_MAX + 1] = {0};
-	fprintf(stderr, "Inode %lu on-disk info: \n", nid);
-
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
 		erofs_err("read inode %lu from disk failed", nid);
@@ -462,6 +455,8 @@ static void dumpfs_print_inode_phy()
 		.index = UINT_MAX,
 		.m_la = 0,
 	};
+
+	fprintf(stderr, "Inode %lu on-disk info: \n", nid);
 	switch (inode.datalayout) {
 	case EROFS_INODE_FLAT_INLINE:
 	case EROFS_INODE_FLAT_PLAIN:
@@ -572,8 +567,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			int actual_size_mark, original_size_mark;
 			memset(filename, 0, PATH_MAX + 1);
 			memcpy(filename, de_name, de_namelen);
+
 			switch (de->file_type) {
-			
 			case EROFS_FT_UNKNOWN:
 				break;	
 			case EROFS_FT_REG_FILE:
@@ -622,7 +617,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					statistics.file_actual_size_counts[29]++;
 				else
 					statistics.file_actual_size_counts[actual_size_mark]++;
-
 				break;	
 
 			case EROFS_FT_DIR:
