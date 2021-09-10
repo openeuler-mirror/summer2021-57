@@ -165,124 +165,6 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 	return 0;
 }
 
-// namei.c static function
-static dev_t erofs_new_decode_dev(u32 dev)
-{
-	const unsigned int major = (dev & 0xfff00) >> 8;
-	const unsigned int minor = (dev & 0xff) | ((dev >> 12) & 0xfff00);
-	return makedev(major, minor);
-}
-
-// namei.c static function
-static int erofs_read_inode_from_disk(struct erofs_inode *vi)
-{
-	int ret, ifmt;
-	char buf[sizeof(struct erofs_inode_extended)];
-	struct erofs_inode_compact *dic;
-	struct erofs_inode_extended *die;
-	const erofs_off_t inode_loc = iloc(vi->nid);
-
-	ret = dev_read(buf, inode_loc, sizeof(*dic));
-	if (ret < 0)
-		return -EIO;
-
-	dic = (struct erofs_inode_compact *)buf;
-	ifmt = le16_to_cpu(dic->i_format);
-
-	vi->datalayout = erofs_inode_datalayout(ifmt);
-	vi->i_ino[0] = le32_to_cpu(dic->i_ino);
-	if (vi->datalayout >= EROFS_INODE_DATALAYOUT_MAX) {
-		erofs_err("unsupported datalayout %u of nid %llu",
-			  vi->datalayout, vi->nid | 0ULL);
-		return -EOPNOTSUPP;
-	}
-	switch (erofs_inode_version(ifmt)) {
-	case EROFS_INODE_LAYOUT_EXTENDED:
-		vi->inode_isize = sizeof(struct erofs_inode_extended);
-
-		ret = dev_read(buf + sizeof(*dic), inode_loc + sizeof(*dic),
-			       sizeof(*die) - sizeof(*dic));
-		if (ret < 0)
-			return -EIO;
-
-		die = (struct erofs_inode_extended *)buf;
-		vi->xattr_isize = erofs_xattr_ibody_size(die->i_xattr_icount);
-		vi->i_mode = le16_to_cpu(die->i_mode);
-
-		switch (vi->i_mode & S_IFMT) {
-		case S_IFREG:
-		case S_IFDIR:
-		case S_IFLNK:
-			vi->u.i_blkaddr = le32_to_cpu(die->i_u.raw_blkaddr);
-			break;
-		case S_IFCHR:
-		case S_IFBLK:
-			vi->u.i_rdev =
-				erofs_new_decode_dev(le32_to_cpu(die->i_u.rdev));
-			break;
-		case S_IFIFO:
-		case S_IFSOCK:
-			vi->u.i_rdev = 0;
-			break;
-		default:
-			goto bogusimode;
-		}
-
-		vi->i_uid = le32_to_cpu(die->i_uid);
-		vi->i_gid = le32_to_cpu(die->i_gid);
-		vi->i_nlink = le32_to_cpu(die->i_nlink);
-		vi->i_ctime = le64_to_cpu(die->i_ctime);
-		vi->i_ctime_nsec = le64_to_cpu(die->i_ctime_nsec);
-		vi->i_size = le64_to_cpu(die->i_size);
-		break;
-	case EROFS_INODE_LAYOUT_COMPACT:
-		vi->inode_isize = sizeof(struct erofs_inode_compact);
-		vi->xattr_isize = erofs_xattr_ibody_size(dic->i_xattr_icount);
-		vi->i_mode = le16_to_cpu(dic->i_mode);
-
-		switch (vi->i_mode & S_IFMT) {
-		case S_IFREG:
-		case S_IFDIR:
-		case S_IFLNK:
-			vi->u.i_blkaddr = le32_to_cpu(dic->i_u.raw_blkaddr);
-			break;
-		case S_IFCHR:
-		case S_IFBLK:
-			vi->u.i_rdev =
-				erofs_new_decode_dev(le32_to_cpu(dic->i_u.rdev));
-			break;
-		case S_IFIFO:
-		case S_IFSOCK:
-			vi->u.i_rdev = 0;
-			break;
-		default:
-			goto bogusimode;
-		}
-
-		vi->i_uid = le16_to_cpu(dic->i_uid);
-		vi->i_gid = le16_to_cpu(dic->i_gid);
-		vi->i_nlink = le16_to_cpu(dic->i_nlink);
-
-		vi->i_ctime = sbi.build_time;
-		vi->i_ctime_nsec = sbi.build_time_nsec;
-
-		vi->i_size = le32_to_cpu(dic->i_size);
-		break;
-	default:
-		erofs_err("unsupported on-disk inode version %u of nid %llu",
-			  erofs_inode_version(ifmt), vi->nid | 0ULL);
-		return -EOPNOTSUPP;
-	}
-
-	vi->flags = 0;
-	if (erofs_inode_is_data_compressed(vi->datalayout))
-		z_erofs_fill_inode(vi);
-	return 0;
-bogusimode:
-	erofs_err("bogus i_mode (%o) @ nid %llu", vi->i_mode, vi->nid | 0ULL);
-	return -EFSCORRUPTED;
-}
-
 static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
 	int len;
@@ -783,7 +665,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 
 static void dumpfs_print_statistic_of_filetype()
 {
-	// file type count
 	fprintf(stderr, "Filesystem Files:		%lu\n", statistics.files);
 	fprintf(stderr, "Filesystem Regular Files:	%lu\n", statistics.regular_files);
 	fprintf(stderr, "Filesystem Dir Files:		%lu\n", statistics.dir_files);
@@ -896,7 +777,6 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	// open image
 	err = dev_open_ro(cfg.c_img_path);
 	if (err) {
 		erofs_err("open image file failed");
