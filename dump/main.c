@@ -366,7 +366,7 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
 	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
 
-	fprintf(stderr, "File type:		")
+	fprintf(stderr, "File type:		");
 	switch (inode.i_mode & S_IFMT) {
 		case S_IFREG:
 			fprintf(stderr, "regular\n");
