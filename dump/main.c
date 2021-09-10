@@ -7,23 +7,21 @@
 * Created by Wang Qi <mpiglet@outlook.com>
 */
 
-#include <time.h>
-#include <getopt.h>
 #include <stdlib.h>
+#include <getopt.h>
 #include <sys/sysmacros.h>
+#include <time.h>
 #include <lz4.h>
 
 #include "erofs/print.h"
 #include "erofs/io.h"
 
-extern struct erofs_inode *erofs_new_inode(void);
 struct dumpcfg {
 	bool print_superblock;
 	bool print_inode;
 	bool print_inode_phy;
 	bool print_statistic;
 	bool print_version; 
-
 	u64 ino;
 };
 static struct dumpcfg dumpcfg;
@@ -101,32 +99,16 @@ static struct option long_options[] = {
 	{0, 0, 0, 0},
 };
 
-
-struct z_erofs_maprecorder {
-	struct erofs_inode *inode;
-	struct erofs_map_blocks *map;
-	void *kaddr;
-
-	unsigned long lcn;
-	/* compression extent information gathered */
-	u8  type;
-	u16 clusterofs;
-	u16 delta[2];
-	erofs_blk_t pblk, compressedlcs;
-};
-
-
 static void usage(void)
 {
-	// TODO
 	fputs("usage: [options] erofs-image \n\n"
 	"Dump erofs layout from erofs-image, and [options] are:\n"
-	      " -s		print information about superblock\n"
-	      " -S		print statistic information of the erofs-image\n"
-	      " -i #		print target # inode info\n"
-	      " -I #		print target # inode on-disk info\n"
-	      " -v/-V		print dump.erofs version info\n"
-	      " -h/--help	display this help and exit\n", stderr);
+		"	-s		print information about superblock\n"
+		"	-S		print statistic information of the erofs-image\n"
+		"	-i #		print target # inode info\n"
+		"	-I #		print target # inode on-disk info\n"
+		"	-v/-V		print dump.erofs version info\n"
+		"	-h/--help	display this help and exit\n", stderr);
 }
 static void dumpfs_print_version()
 {
@@ -183,6 +165,7 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 	return 0;
 }
 
+// namei.c static function
 static dev_t erofs_new_decode_dev(u32 dev)
 {
 	const unsigned int major = (dev & 0xfff00) >> 8;
@@ -190,7 +173,7 @@ static dev_t erofs_new_decode_dev(u32 dev)
 	return makedev(major, minor);
 }
 
-
+// namei.c static function
 static int erofs_read_inode_from_disk(struct erofs_inode *vi)
 {
 	int ret, ifmt;
@@ -300,7 +283,7 @@ bogusimode:
 	return -EFSCORRUPTED;
 }
 
-static int z_erofs_get_last_cluster_size_from_disk_new(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
+static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
 	int len;
 	int inputmargin = 0;
@@ -353,7 +336,7 @@ static int z_erofs_get_compressed_filesize(struct erofs_inode *inode, erofs_off_
 			*size += last_cluster_size;
 	}
 	else {
-		err = z_erofs_get_last_cluster_size_from_disk_new(&map, last_cluster_size, &last_cluster_compressed_size);
+		err = z_erofs_get_last_cluster_size_from_disk(&map, last_cluster_size, &last_cluster_compressed_size);
 		if (err) {
 			erofs_err("get nid%ld's last extent size failed", inode->nid);
 			return err;
@@ -875,17 +858,9 @@ static void dumpfs_print_statistic_of_compression()
 
 static void dumpfs_print_statistic()
 {
-	struct erofs_inode *root_inode;
 	int err;
 
-	root_inode = erofs_new_inode();
-	err = erofs_ilookup("/", root_inode);
-	if (err) {
-		erofs_err("look for root inode failed");
-		return;
-	}
 	statistics.blocks = sbi.blocks;
-	
 	err = read_dir(sbi.root_nid, sbi.root_nid);
 	if (err) {
 		erofs_err("read dir failed");
