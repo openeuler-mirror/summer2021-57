@@ -253,7 +253,7 @@ static void dumpfs_print_superblock()
 	fprintf(stderr, "Filesystem magic number:	0x%04X\n", EROFS_SUPER_MAGIC_V1);
 	fprintf(stderr, "Filesystem blocks: 		%lu\n", sbi.blocks);
 	fprintf(stderr, "Filesystem meta block:		%u\n", sbi.meta_blkaddr);
-	fprintf(stderr, "Filesystem xattr block:		%u\n", sbi.xattr_blkaddr);
+	fprintf(stderr, "Filesystem xattr block:	%u\n", sbi.xattr_blkaddr);
 	fprintf(stderr, "Filesystem root nid:		%ld\n", sbi.root_nid);
 	fprintf(stderr, "Filesystem valid inos:		%lu\n", sbi.inos);
 
@@ -265,7 +265,7 @@ static void dumpfs_print_superblock()
 	for (int i = 0; i < 16; i++)
 		fprintf(stderr, "%02x", sbi.uuid[i]);
 	fprintf(stderr, "\n");
-	// TODO availiable compression algorithms
+
 	if (erofs_sb_has_lz4_0padding())
 		fprintf(stderr, "Filesystem support lz4 0padding\n");
 	else
@@ -367,7 +367,7 @@ static void dumpfs_print_inode()
 	erofs_nid_t nid = dumpcfg.ino;
 	struct erofs_inode inode = {.nid = nid};
 	char path[PATH_MAX + 1] = {0};
-
+	
 	err = erofs_read_inode_from_disk(&inode);
 	if (err) {
 		erofs_err("read inode %lu from disk failed", nid);
@@ -375,13 +375,22 @@ static void dumpfs_print_inode()
 	}
 
 	fprintf(stderr, "Inode %lu info:\n", dumpcfg.ino);
-	fprintf(stderr, "File inode:		%lu\n", inode.i_ino[0]);
-	fprintf(stderr, "File size:		%lu\n", inode.i_size);
-	fprintf(stderr, "File nid:		%lu\n", inode.nid);
-	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
-	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
-
-	fprintf(stderr, "File type:		");
+	switch (inode.inode_isize) {
+		case 32:
+			fprintf(stderr, "	File inode is compacted layout\n");
+			break;
+		case 6:
+			fprintf(stderr, "	File inode is extended layout\n");
+			break;
+		default:
+			erofs_err("	Unsupported inode layout\n");
+	}
+	fprintf(stderr, "	File size:		%lu\n", inode.i_size);
+	fprintf(stderr, "	File nid:		%lu\n", inode.nid);
+	fprintf(stderr, "	File extent size:	%u\n", inode.extent_isize);
+	fprintf(stderr, "	File xattr size:	%u\n", inode.xattr_isize);
+	fprintf(stderr, "	File inode size:	%u\n", inode.inode_isize);
+	fprintf(stderr, "	File type:		");
 	switch (inode.i_mode & S_IFMT) {
 		case S_IFREG:
 			fprintf(stderr, "regular\n");
@@ -414,11 +423,11 @@ static void dumpfs_print_inode()
 		return;
 	}
 
-	fprintf(stderr, "File original size:	%lu\n"
-			"File on-disk size:	%lu\n", inode.i_size, size);
-	fprintf(stderr, "File compress rate:	%.2f%%\n", (double)(100 * size) / (double)(inode.i_size));
+	fprintf(stderr, "	File original size:	%lu\n"
+			"	File on-disk size:	%lu\n", inode.i_size, size);
+	fprintf(stderr, "	File compress rate:	%.2f%%\n", (double)(100 * size) / (double)(inode.i_size));
 
-	fprintf(stderr, "File datalayout:	");
+	fprintf(stderr, "	File datalayout:	");
 	switch (inode.datalayout)
 	{
 	case EROFS_INODE_FLAT_PLAIN:
@@ -438,14 +447,14 @@ static void dumpfs_print_inode()
 	}
 
 	time_t t = inode.i_ctime;
-	fprintf(stderr, "File create time:	%s", ctime(&t));
-	fprintf(stderr, "File uid:		%u\n", inode.i_uid);
-	fprintf(stderr, "File gid:		%u\n", inode.i_gid);
-	fprintf(stderr, "File hard-link count:	%u\n", inode.i_nlink);
+	fprintf(stderr, "	File create time:	%s", ctime(&t));
+	fprintf(stderr, "	File uid:		%u\n", inode.i_uid);
+	fprintf(stderr, "	File gid:		%u\n", inode.i_gid);
+	fprintf(stderr, "	File hard-link count:	%u\n", inode.i_nlink);
 
 	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
 	if (!found)
-		fprintf(stderr, "File path:		%s\n", path);
+		fprintf(stderr, "	File path:		%s\n", path);
 	else
 		fprintf(stderr, "Path not found\n");
 	return;
@@ -484,25 +493,27 @@ static void dumpfs_print_inode_phy()
 			start = inode.u.i_blkaddr;
 			end = start + BLK_ROUND_UP(inode.i_size) - 1;
 		}
-		fprintf(stderr, "Inode ino:			%lu\n", inode.i_ino[0]);
-		fprintf(stderr, "Filesize:			%lu\n", inode.i_size);
-		fprintf(stderr, "Plain Block Address:		%u - %u\n", start, end);
+		fprintf(stderr, "	File size:			%lu\n", inode.i_size);
+		fprintf(stderr, "	Plain Block Address:		%u - %u\n", start, end);
 		break;
 
 	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 	case EROFS_INODE_FLAT_COMPRESSION:
 		
 		err = z_erofs_map_blocks_iter(&inode, &map);
+		if (err) {
+			erofs_err("get file blocks range failed");
+		}
 
 		start = erofs_blknr(map.m_pa);
 		end = start - 1 + blocks;
-		fprintf(stderr, "Compressed Block Address:	%u - %u\n", start, end);
+		fprintf(stderr, "	Compressed Block Address:	%u - %u\n", start, end);
 		break;
 	}
 
 	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
 	if (!found) {
-		fprintf(stderr, "File Path:			%s\n", path);
+		fprintf(stderr, "	File Path:			%s\n", path);
 	}
 	else
 		erofs_err("Path not found");
@@ -524,7 +535,7 @@ static unsigned check_file_category_by_postfix(const char *filename) {
 	return type;
 }
 
-// file num、file size、file type
+// file count、file size、file type
 static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
 {
 	struct erofs_inode vi = { .nid = nid};
@@ -778,7 +789,6 @@ int main(int argc, char** argv)
 
 	err = dumpfs_parse_options_cfg(argc, argv);	
 	if (err) {
-		erofs_err("parse config failed");
 		if (err == -EINVAL)
 			usage();
 		return -1;
