@@ -167,7 +167,8 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 
 static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
-	int len;
+	int decompressed_len;
+	int compressed_len;
 	int inputmargin;
 	char *raw = (char*)malloc(map->m_plen);
 	char decompress[EROFS_BLKSIZ * 1536] = {0};
@@ -180,16 +181,20 @@ static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map,
 
 	}
 	if (inputmargin != 0)
-		len = map->m_plen;
+		compressed_len = map->m_plen;
 	else {
-		len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, EROFS_BLKSIZ * 1536);
-		len = LZ4_compress_destSize(decompress, raw, &len, EROFS_BLKSIZ);
+		decompressed_len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, EROFS_BLKSIZ * 1536);
+		if (decompressed_len < 0) {
+			erofs_err("deceepress last cluster to get decompressed size failed");
+			return -1;
+		}
+		compressed_len = LZ4_compress_destSize(decompress, raw, &decompressed_len, EROFS_BLKSIZ);
 	}
-	if (len < 0) {
+	if (compressed_len < 0) {
 		erofs_err("compress to get last extent size failed\n");
 		return -1;
 	}
-	*last_cluster_compressed_size = len;
+	*last_cluster_compressed_size = compressed_len;
 	return 0;
 }
 
