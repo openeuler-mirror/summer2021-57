@@ -23,6 +23,7 @@ struct dumpcfg {
 	bool print_statistic;
 	bool print_version; 
 	u64 ino;
+	u64 ino_phy;
 };
 static struct dumpcfg dumpcfg;
 
@@ -140,7 +141,7 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 			case 'I':
 				i = atoll(optarg);
 				dumpcfg.print_inode_phy = true;
-				dumpcfg.ino = i;
+				dumpcfg.ino_phy = i;
 				break;
 			case 'h':
 			case 1:
@@ -281,10 +282,10 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
 	struct erofs_inode inode = {.nid = nid};
 	unsigned long offset;
 	char buf[EROFS_BLKSIZ];
-	err = erofs_read_inode_from_disk(&inode);
 
+	err = erofs_read_inode_from_disk(&inode);
 	if (err) {
-		fprintf(stderr, "read inode%ld error\n", nid);
+		erofs_err("read inode %lu failed", nid);
 		return err;
 	}
 
@@ -301,7 +302,6 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  			return err;
  
  		nameoff = le16_to_cpu(de->nameoff);
- 
  		if (nameoff < sizeof(struct erofs_dirent) ||
  		    nameoff >= PAGE_SIZE) {
  			erofs_err("invalid de[0].nameoff %u @ nid %llu",
@@ -311,14 +311,12 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  
  		end = (void *)buf + nameoff;
  		while (de < end) {
- 
  			const char *de_name;
  			unsigned int de_namelen;
  
  			nameoff = le16_to_cpu(de->nameoff);
  			de_name = (char *)buf + nameoff;
  
- 			/* the last dirent in the block? */
  			if (de + 1 >= end)
  				de_namelen = strnlen(de_name, maxsize - nameoff);
  			else
@@ -338,12 +336,10 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
 			}
 
  			if (de->file_type == EROFS_FT_DIR && de->nid != parent_nid && de->nid != nid) {
-				int found;
 				memcpy(path + mark, de_name, de_namelen);
-				// fprintf(stderr, "%s\n", path);
- 				found = erofs_get_path_by_nid(de->nid, nid, target, path, mark + de_namelen);
-				if (!found) {
-					return found;
+ 				err = erofs_get_path_by_nid(de->nid, nid, target, path, mark + de_namelen);
+				if (!err) {
+					return 0;
 				}
 				memset(path + mark, 0, de_namelen);
  			}
@@ -351,17 +347,16 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  		}
  		offset += maxsize;
  	}
- 	return 1;
+ 	return -1;
 }
 
 static void dumpfs_print_inode()
 {
+	int err;
+	erofs_off_t size;
 	erofs_nid_t nid = dumpcfg.ino;
 	struct erofs_inode inode = {.nid = nid};
 	char path[PATH_MAX + 1] = {0};
-	int err = 0;
-
-	fprintf(stderr, "Inode %lu info: \n", dumpcfg.ino);
 
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
@@ -369,12 +364,13 @@ static void dumpfs_print_inode()
 		return;
 	}
 
+	fprintf(stderr, "Inode %lu info:\n", dumpcfg.ino);
 	fprintf(stderr, "File inode:		%lu\n", inode.i_ino[0]);
 	fprintf(stderr, "File size:		%lu\n", inode.i_size);
 	fprintf(stderr, "File nid:		%lu\n", inode.nid);
 	fprintf(stderr, "File extent size:	%u\n", inode.extent_isize);
 	fprintf(stderr, "File xattr size:	%u\n", inode.xattr_isize);
-	//get file type
+
 	switch (inode.i_mode & S_IFMT) {
 		case S_IFREG:
 			fprintf(stderr, "File is Regular File\n");
@@ -401,7 +397,6 @@ static void dumpfs_print_inode()
 			break;
 		}
 
-	erofs_off_t size;
 	err = erofs_get_file_actual_size(&inode, &size);
 	if (err) {
 		erofs_err("get file size failed\n");
@@ -447,14 +442,14 @@ static void dumpfs_print_inode()
 static void dumpfs_print_inode_phy()
 {
 	int err = 0;
-	erofs_nid_t nid = dumpcfg.ino;
+	erofs_nid_t nid = dumpcfg.ino_phy;
 	struct erofs_inode inode = {.nid = nid};
 	char path[PATH_MAX + 1] = {0};
-	fprintf(stderr, "Inode %lu on-disk info: \n", dumpcfg.ino);
+	fprintf(stderr, "Inode %lu on-disk info: \n", nid);
 
 	err = erofs_read_inode_from_disk(&inode);
 	if (err < 0) {
-		erofs_err("read inode%lu from disk failed", nid);
+		erofs_err("read inode %lu from disk failed", nid);
 		return;
 	}
 
@@ -511,7 +506,7 @@ static unsigned determine_file_category_by_postfix(const char *filename) {
 	while (type < OTHERFILETYPE) {
 		if (strcmp(postfix, file_types[type]) == 0)
 			break;
-		type ++;	
+		type ++;
 	}
 	return type;
 }
@@ -520,26 +515,26 @@ static unsigned determine_file_category_by_postfix(const char *filename) {
 static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
 {
 	struct erofs_inode vi = { .nid = nid};
-	int ret;
+	int err;
 	char buf[EROFS_BLKSIZ];
 	char filename[PATH_MAX + 1];
 	erofs_off_t offset;
 	
-	ret = erofs_read_inode_from_disk(&vi);
-	if (ret)
-		return ret;
+	err = erofs_read_inode_from_disk(&vi);
+	if (err)
+		return err;
 
 	offset = 0;
 	while (offset < vi.i_size) {
 		erofs_off_t maxsize = min_t(erofs_off_t,
-					vi.i_size - offset, EROFS_BLKSIZ);
+			vi.i_size - offset, EROFS_BLKSIZ);
 		struct erofs_dirent *de = (void *)buf;
 		struct erofs_dirent *end;
 		unsigned int nameoff;
 
-		ret = erofs_pread(&vi, buf, maxsize, offset);
-		if (ret)
-			return ret;
+		err = erofs_pread(&vi, buf, maxsize, offset);
+		if (err)
+			return err;
 
 		nameoff = le16_to_cpu(de->nameoff);
 
@@ -582,19 +577,19 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			case EROFS_FT_UNKNOWN:
 				break;	
 			case EROFS_FT_REG_FILE:
-				ret = erofs_read_inode_from_disk(&inode);
-				if (ret) {
+				err = erofs_read_inode_from_disk(&inode);
+				if (err) {
 					fprintf(stderr, "read reg file inode failed!\n");
 					erofs_err("Read file inode from disk failed!");
-					return ret;
+					return err;
 				}
 				original_size = inode.i_size;
 				statistics.files_total_origin_size += original_size;
 				statistics.regular_files++;
-				ret = erofs_get_file_actual_size(&inode, &actual_size);
-				if (ret) {
+				err = erofs_get_file_actual_size(&inode, &actual_size);
+				if (err) {
 					erofs_err("get file size failed\n");
-					return ret;
+					return err;
 				}
 				if (actual_size < 0) {
 					erofs_err("Get file on-disk size failed!");
@@ -633,10 +628,10 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			case EROFS_FT_DIR:
 				if (de->nid != nid && de->nid != parent_nid) {	
 					statistics.dir_files++;
-					ret = read_dir(de->nid, nid);
-					if (ret) {
-						fprintf(stderr, "parse dir nid%llu error occurred\n", de->nid);
-						return 1;
+					err = read_dir(de->nid, nid);
+					if (err) {
+						fprintf(stderr, "parse dir nid %llu error occurred\n", de->nid);
+						return err;
 					}
 				}
 				break;	
