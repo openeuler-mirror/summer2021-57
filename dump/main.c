@@ -69,6 +69,7 @@ enum {
 	OTHERFILETYPE,
 };
 
+#define	FILE_SIZE_BITS	30
 struct statistics {
 	unsigned long blocks;
 	unsigned long files;
@@ -90,8 +91,8 @@ struct statistics {
 	unsigned long wasted_fragment_bytes;
 
 	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
-	unsigned int file_original_size_counts[30];
-	unsigned int file_actual_size_counts[30];
+	unsigned int file_original_size_counts[FILE_SIZE_BITS];
+	unsigned int file_actual_size_counts[FILE_SIZE_BITS];
 };
 static struct statistics statistics;
 
@@ -384,7 +385,7 @@ static void dumpfs_print_inode()
 		case 32:
 			fprintf(stderr, "	File inode is compacted layout\n");
 			break;
-		case 6:
+		case 64:
 			fprintf(stderr, "	File inode is extended layout\n");
 			break;
 		default:
@@ -620,12 +621,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					erofs_err("get file size failed\n");
 					return err;
 				}
-				if (actual_size < 0) {
-					erofs_err("Get file on-disk size failed!");
-					return -EIO;
-				}
 				statistics.files_total_size += actual_size;
-				
 				statistics.file_count_categorized_by_postfix[check_file_category_by_postfix(filename)]++;
 
 				original_size_mark = 0;
@@ -643,12 +639,12 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					}
 				}
 
-				if (original_size_mark >= 29)
-					statistics.file_original_size_counts[29]++;
+				if (original_size_mark >= FILE_SIZE_BITS - 1)
+					statistics.file_original_size_counts[FILE_SIZE_BITS - 1]++;
 				else
 					statistics.file_original_size_counts[original_size_mark]++;
-				if (actual_size_mark >= 29)
-					statistics.file_actual_size_counts[29]++;
+				if (actual_size_mark >= FILE_SIZE_BITS - 1)
+					statistics.file_actual_size_counts[FILE_SIZE_BITS - 1]++;
 				else
 					statistics.file_actual_size_counts[actual_size_mark]++;
 				break;	
@@ -656,6 +652,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			case EROFS_FT_DIR:
 				if (de->nid != nid && de->nid != parent_nid) {	
 					statistics.dir_files++;
+					statistics.uncompressed_files++;
 					err = read_dir(de->nid, nid);
 					if (err) {
 						fprintf(stderr, "parse dir nid %llu error occurred\n", de->nid);
@@ -665,18 +662,23 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				break;	
 			case EROFS_FT_CHRDEV:
 				statistics.chardev_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_BLKDEV:
 				statistics.blkdev_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_FIFO:
 				statistics.fifo_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_SOCK:
 				statistics.sock_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_SYMLINK:
 				statistics.symlink_files++;
+				statistics.uncompressed_files++;
 				break;
 			}
 			++de;
@@ -688,14 +690,14 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 
 static void dumpfs_print_statistic_of_filetype()
 {
-	fprintf(stderr, "Filesystem Files:		%lu\n", statistics.files);
-	fprintf(stderr, "Filesystem Regular Files:	%lu\n", statistics.regular_files);
-	fprintf(stderr, "Filesystem Dir Files:		%lu\n", statistics.dir_files);
-	fprintf(stderr, "Filesystem CharDev Files:	%lu\n", statistics.chardev_files);
-	fprintf(stderr, "Filesystem BlkDev Files:	%lu\n", statistics.blkdev_files);
-	fprintf(stderr, "Filesystem FIFO Files:		%lu\n", statistics.fifo_files);
-	fprintf(stderr, "Filesystem SOCK Files:		%lu\n", statistics.sock_files);
-	fprintf(stderr, "Filesystem Link Files:		%lu\n", statistics.symlink_files);
+	fprintf(stderr, "Filesystem total file count:		%lu\n", statistics.files);
+	fprintf(stderr, "Filesystem regular file count:		%lu\n", statistics.regular_files);
+	fprintf(stderr, "Filesystem directory count:		%lu\n", statistics.dir_files);
+	fprintf(stderr, "Filesystem character device count:	%lu\n", statistics.chardev_files);
+	fprintf(stderr, "Filesystem block device count:		%lu\n", statistics.blkdev_files);
+	fprintf(stderr, "Filesystem FIFO file count:		%lu\n", statistics.fifo_files);
+	fprintf(stderr, "Filesystem SOCK file count:		%lu\n", statistics.sock_files);
+	fprintf(stderr, "Filesystem symlink file count:		%lu\n", statistics.symlink_files);
 }
 static void dumpfs_print_chart_row(char *col1, unsigned col2, double col3, char *col4)
 {
@@ -751,8 +753,8 @@ static void dumpfs_print_chart_of_file_type(char **file_types, unsigned len)
 
 static void dumpfs_print_statistic_of_compression()
 {
-	fprintf(stderr, "Filesystem Compressed Files:	%lu\n", statistics.compressed_files);
-	fprintf(stderr, "Filesystem Uncompressed Files:	%lu\n", statistics.uncompressed_files);
+	fprintf(stderr, "Filesystem compressed Files:	%lu\n", statistics.compressed_files);
+	fprintf(stderr, "Filesystem uncompressed Files:	%lu\n", statistics.uncompressed_files);
 	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
 	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
 
