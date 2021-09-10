@@ -255,15 +255,31 @@ static void dumpfs_print_superblock()
 	fprintf(stderr, "Filesystem meta block:		%u\n", sbi.meta_blkaddr);
 	fprintf(stderr, "Filesystem xattr block:		%u\n", sbi.xattr_blkaddr);
 	fprintf(stderr, "Filesystem root nid:		%ld\n", sbi.root_nid);
+	fprintf(stderr, "Filesystem valid inos:		%lu\n", sbi.inos);
 
-	time_t t = sbi.build_time;
-	fprintf(stderr, "Filesystem created:		%s", ctime(&t));
-	fprintf(stderr, "Filesystem inodes count:	%ld\n", sbi.inos);
+	time_t time = sbi.build_time;
+	fprintf(stderr, "Filesystem created:		%s", ctime(&time));
+
 	fprintf(stderr, "Filesystem lz4 max distanve:	%d\n", sbi.lz4_max_distance);
 	fprintf(stderr, "Filesystem uuid:		");
 	for (int i = 0; i < 16; i++)
 		fprintf(stderr, "%02x", sbi.uuid[i]);
 	fprintf(stderr, "\n");
+	// TODO availiable compression algorithms
+	if (erofs_sb_has_lz4_0padding())
+		fprintf(stderr, "Filesystem support lz4 0padding\n");
+	else
+		fprintf(stderr, "Filesystem not support lz4 0padding\n");
+
+	if (erofs_sb_has_big_pcluster())
+		fprintf(stderr, "Filesystem support big pcluster\n");
+	else
+		fprintf(stderr, "Filesystem not support big pcluster\n");
+
+	if (erofs_sb_has_compr_cfgs())
+		fprintf(stderr, "Filesystem has compression cfg\n");
+	else
+		fprintf(stderr, "Filesystem don't have compression cfg\n");
 }
 
 static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned pos)
@@ -311,7 +327,6 @@ static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_
  
  			nameoff = le16_to_cpu(de->nameoff);
  			de_name = (char *)buf + nameoff;
- 
  			if (de + 1 >= end)
  				de_namelen = strnlen(de_name, maxsize - nameoff);
  			else
