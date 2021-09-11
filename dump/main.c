@@ -27,7 +27,8 @@ struct dumpcfg {
 };
 static struct dumpcfg dumpcfg;
 
-static char chart_format[] = "%s	: %d		%.1f%%	|%s												|\n";
+static char chart_format[] = "%-16s	%-11d %8.2f%% |%-50s|\n";
+static char header_format[] = "%-16s %11s %16s |%-50s|\n";
 static char *file_types[] = {
 	".so",
 	".png",
@@ -167,55 +168,42 @@ static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map,
 {
 	int ret;
 	int decompressed_len;
-	int compressed_len;
-	int inputmargin;
-	char *raw, *decompress;
-	
-	raw = (char*)malloc(map->m_plen);
-	if (!raw) {
-		erofs_err("allocate memory for raw failed");
-		return -1;
-	}
+	int compressed_len = 0;
+	char *decompress;
+	char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
+
 	ret = dev_read(raw, map->m_pa, map->m_plen);
 	if (ret < 0) {
-		free(raw);
 		return -EIO;
 	}
 
-	inputmargin = 0;
 	if (erofs_sb_has_lz4_0padding()) {
-		while (!raw[inputmargin & ~PAGE_MASK])
-			if (!(++inputmargin & ~PAGE_MASK))
-				break;
-	}
-	if (inputmargin != 0)
 		compressed_len = map->m_plen;
-	else {
-		decompress = (char *)malloc(map->m_plen * 10);
+	} else {
+		// lz4 maximum compression ratio is 255
+		decompress = (char *)malloc(map->m_plen * 255);
 		if (!decompress) {
 			erofs_err("allocate memory for decompress space failed");
-			free(raw);
 			return -1;
 		}
 		decompressed_len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, map->m_plen * 10);
 		if (decompressed_len < 0) {
 			erofs_err("decompress last cluster to get decompressed size failed");
 			free(decompress);
-			free(raw);
 			return -1;
 		}
-		compressed_len = LZ4_compress_destSize(decompress, raw, &decompressed_len, EROFS_BLKSIZ);
+		compressed_len = LZ4_compress_destSize(decompress, raw, &decompressed_len, Z_EROFS_PCLUSTER_MAX_SIZE);
 		if (compressed_len < 0) {
 			erofs_err("compress to get last extent size failed\n");
 			free(decompress);
-			free(raw);
 			return -1;
 		}
 		free(decompress);
+		// dut to the use of lz4hc (can use different compress level), our normal lz4 compress result may be bigger
+		compressed_len = compressed_len < map->m_plen ? compressed_len : map->m_plen;
 	}
 	
 	*last_cluster_compressed_size = compressed_len;
-	free(raw);
 	return 0;
 }
 
@@ -710,14 +698,14 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 
 static void dumpfs_print_statistic_of_filetype()
 {
-	fprintf(stderr, "Filesystem total file count:		%lu\n", statistics.files);
-	fprintf(stderr, "Filesystem regular file count:		%lu\n", statistics.regular_files);
-	fprintf(stderr, "Filesystem directory count:		%lu\n", statistics.dir_files);
-	fprintf(stderr, "Filesystem character device count:	%lu\n", statistics.chardev_files);
-	fprintf(stderr, "Filesystem block device count:		%lu\n", statistics.blkdev_files);
-	fprintf(stderr, "Filesystem FIFO file count:		%lu\n", statistics.fifo_files);
-	fprintf(stderr, "Filesystem SOCK file count:		%lu\n", statistics.sock_files);
-	fprintf(stderr, "Filesystem symlink file count:		%lu\n", statistics.symlink_files);
+	fprintf(stderr, "Filesystem total file count:         %lu\n", statistics.files);
+	fprintf(stderr, "Filesystem regular file count:       %lu\n", statistics.regular_files);
+	fprintf(stderr, "Filesystem directory count:          %lu\n", statistics.dir_files);
+	fprintf(stderr, "Filesystem symlink file count:       %lu\n", statistics.symlink_files);
+	fprintf(stderr, "Filesystem character device count:   %lu\n", statistics.chardev_files);
+	fprintf(stderr, "Filesystem block device count:       %lu\n", statistics.blkdev_files);
+	fprintf(stderr, "Filesystem FIFO file count:          %lu\n", statistics.fifo_files);
+	fprintf(stderr, "Filesystem SOCK file count:          %lu\n", statistics.sock_files);
 }
 static void dumpfs_print_chart_row(char *col1, unsigned col2, double col3, char *col4)
 {
@@ -734,19 +722,20 @@ static void dumpfs_print_chart_of_file(unsigned *file_counts, unsigned len)
 	double col3;
 	char col4[400];
 	unsigned lowerbound = 0, upperbound = 1;
+	fprintf(stderr, header_format, ">=(KB) .. <(KB) ", "count",	"ratio", "distribution");
 	for (int i = 0; i < len; i++) {
 		memset(col1, 0, 30);
 		memset(col4, 0, 400);
 		if (i == len - 1)
-			strcpy(col1, "	Others		");
+			strcpy(col1, " others");
 		else if (i <= 6)
-			sprintf(col1, "%9d .. %d		", lowerbound, upperbound);
+			sprintf(col1, "%6d .. %-6d", lowerbound, upperbound);
 		else
 
-			sprintf(col1, "%9d .. %d	", lowerbound, upperbound);
+			sprintf(col1, "%6d .. %-6d", lowerbound, upperbound);
 		col2 = file_counts[i];
 		col3 = (double)(100 * col2) / (double)statistics.regular_files;
-		memset(col4, '#', col3 * 4);
+		memset(col4, '#', col3 / 2);
 		dumpfs_print_chart_row(col1, col2, col3, col4);
 		lowerbound = upperbound;
 		upperbound <<= 1;
@@ -760,26 +749,26 @@ static void dumpfs_print_chart_of_file_type(char **file_types, unsigned len)
 	double col3;
 	char col4[401];
 
+	fprintf(stderr, header_format, "type", "count",	"ratio", "distribution");
 	for (int i = 0; i < len; i++) {
 		memset(col1, 0, 30);
 		memset(col4, 0, 401);
-		sprintf(col1, "	%s		", file_types[i]);
+		sprintf(col1, "%-17s", file_types[i]);
 		col2 = statistics.file_count_categorized_by_postfix[i];
 		col3 = (double)(100 * col2) / (double)statistics.regular_files;
-		memset(col4, '#', col3 * 4);
+		memset(col4, '#', col3 / 2);
 		dumpfs_print_chart_row(col1, col2, col3, col4);
 	}
 }
 
 static void dumpfs_print_statistic_of_compression()
 {
-	fprintf(stderr, "Filesystem compressed Files:	%lu\n", statistics.compressed_files);
-	fprintf(stderr, "Filesystem uncompressed Files:	%lu\n", statistics.uncompressed_files);
-	fprintf(stderr, "Filesystem total original file size:	%lu Bytes\n", statistics.files_total_origin_size);
-	fprintf(stderr, "Filesystem total file size:	%lu Bytes\n", statistics.files_total_size);
-
 	statistics.compress_rate = (double)(100 * statistics.files_total_size) / (double)(statistics.files_total_origin_size);
-	fprintf(stderr, "Filesystem compress rate:	%.2f%%\n", statistics.compress_rate);
+	fprintf(stderr, "Filesystem compressed files:         %lu\n", statistics.compressed_files);
+	fprintf(stderr, "Filesystem uncompressed files:       %lu\n", statistics.uncompressed_files);
+	fprintf(stderr, "Filesystem total original file size: %lu Bytes\n", statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem total file size:          %lu Bytes\n", statistics.files_total_size);
+	fprintf(stderr, "Filesystem compress rate:            %.2f%%\n", statistics.compress_rate);
 }
 
 static void dumpfs_print_statistic()
@@ -796,15 +785,11 @@ static void dumpfs_print_statistic()
 	dumpfs_print_statistic_of_filetype();
 	dumpfs_print_statistic_of_compression();
 
-	fprintf(stderr, "\nOriginal file size distribution:	\n");
-	fprintf(stderr, "   >=(KB) .. <(KB)		: count		ratio	|distribution												|\n");
-	dumpfs_print_chart_of_file(statistics.file_original_size_counts, 30);
-	fprintf(stderr, "\nOn-Disk file size distribution:	\n");
-	fprintf(stderr, "   >=(KB) .. <(KB)		: count		ratio	|distribution												|\n");
-	dumpfs_print_chart_of_file(statistics.file_actual_size_counts, 30);
-	
-	fprintf(stderr, "\nFile type distribution:		\n");
-	fprintf(stderr, "	type			: count		ratio	|distribution													|\n");
+	fprintf(stderr, "\nOriginal file size distribution:\n");
+	dumpfs_print_chart_of_file(statistics.file_original_size_counts, 17);
+	fprintf(stderr, "\nOn-Disk file size distribution:\n");
+	dumpfs_print_chart_of_file(statistics.file_actual_size_counts, 17);
+	fprintf(stderr, "\nFile type distribution:\n");
 	dumpfs_print_chart_of_file_type(file_types, OTHERFILETYPE + 1);
 	return;
 }
