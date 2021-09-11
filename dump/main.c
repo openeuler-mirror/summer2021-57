@@ -26,6 +26,8 @@ static struct dumpcfg dumpcfg;
 struct statistics {
 	unsigned long blocks;
 	unsigned long files;
+	unsigned long files_total_size;
+	unsigned long files_total_origin_size;
 };
 static struct statistics statistics;
 
@@ -82,6 +84,102 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 	if (optind < argc) {
 		erofs_err("unexpected argument: %s\n", argv[optind]);
 		return -EINVAL;
+	}
+	return 0;
+}
+
+static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
+{
+	int ret;
+	int decompressed_len;
+	int compressed_len = 0;
+	char *decompress;
+	char raw[Z_EROFS_PCLUSTER_MAX_SIZE] = {0};
+
+	ret = dev_read(raw, map->m_pa, map->m_plen);
+	if (ret < 0) {
+		return -EIO;
+	}
+
+	if (erofs_sb_has_lz4_0padding()) {
+		compressed_len = map->m_plen;
+	} else {
+		// lz4 maximum compression ratio is 255
+		decompress = (char *)malloc(map->m_plen * 255);
+		if (!decompress) {
+			erofs_err("allocate memory for decompress space failed");
+			return -1;
+		}
+		decompressed_len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, map->m_plen * 10);
+		if (decompressed_len < 0) {
+			erofs_err("decompress last cluster to get decompressed size failed");
+			free(decompress);
+			return -1;
+		}
+		compressed_len = LZ4_compress_destSize(decompress, raw, &decompressed_len, Z_EROFS_PCLUSTER_MAX_SIZE);
+		if (compressed_len < 0) {
+			erofs_err("compress to get last extent size failed\n");
+			free(decompress);
+			return -1;
+		}
+		free(decompress);
+		// dut to the use of lz4hc (can use different compress level), our normal lz4 compress result may be bigger
+		compressed_len = compressed_len < map->m_plen ? compressed_len : map->m_plen;
+	}
+	
+	*last_cluster_compressed_size = compressed_len;
+	return 0;
+}
+
+static int z_erofs_get_compressed_size(struct erofs_inode *inode, erofs_off_t *size)
+{
+	int err;
+	erofs_blk_t compressedlcs;
+	erofs_off_t last_cluster_size;
+	erofs_off_t last_cluster_compressed_size;
+	struct erofs_map_blocks map = {
+		.index = UINT_MAX,
+		.m_la = inode->i_size - 1,
+	};
+
+	err = z_erofs_map_blocks_iter(inode, &map);
+	if (err) {
+		erofs_err("read nid %ld's last block failed\n", inode->nid);
+		return err;
+	}
+	compressedlcs = map.m_plen >> inode->z_logical_clusterbits;
+	*size = (inode->u.i_blocks - compressedlcs) * EROFS_BLKSIZ;
+	last_cluster_size = inode->i_size - map.m_la;
+
+	if (!(map.m_flags & EROFS_MAP_ZIPPED)) {
+			*size += last_cluster_size;
+	}
+	else {
+		err = z_erofs_get_last_cluster_size_from_disk(&map, last_cluster_size, &last_cluster_compressed_size);
+		if (err) {
+			erofs_err("get nid %ld's last extent size failed", inode->nid);
+			return err;
+		}
+		*size += last_cluster_compressed_size;
+	}
+	return 0;
+}
+
+static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *size)
+{
+	int err;
+	switch (inode->datalayout) {
+		case EROFS_INODE_FLAT_INLINE:
+		case EROFS_INODE_FLAT_PLAIN:
+			*size = inode->i_size;
+			break;
+		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
+		case EROFS_INODE_FLAT_COMPRESSION:
+			err = z_erofs_get_compressed_size(inode, size);
+			if (err) {
+				erofs_err("get compressed file size failed\n");
+				return err;
+			}
 	}
 	return 0;
 }
@@ -176,6 +274,9 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 			if (de->nid != nid && de->nid != parent_nid)
 				statistics.files++;
 
+			erofs_off_t actual_size = 0;
+			erofs_off_t original_size;
+			int actual_size_mark, original_size_mark;
 			memset(filename, 0, PATH_MAX + 1);
 			memcpy(filename, de_name, de_namelen);
 
@@ -188,6 +289,29 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					fprintf(stderr, "read reg file inode failed!\n");
 					erofs_err("read file inode from disk failed!");
 					return err;
+				}
+				original_size = inode.i_size;
+				statistics.files_total_origin_size += original_size;
+				err = erofs_get_file_actual_size(&inode, &actual_size);
+				if (err) {
+					erofs_err("get file size failed\n");
+					return err;
+				}
+				statistics.files_total_size += actual_size;
+
+				original_size_mark = 0;
+				actual_size_mark = 0;
+				actual_size >>= 10;
+				original_size >>= 10;
+				while (actual_size || original_size) {
+					if (actual_size) {
+						actual_size >>= 1;
+						actual_size_mark++;
+					}
+					if (original_size) {
+						original_size >>= 1;
+						original_size_mark++;
+					}
 				}
 				break;	
 
@@ -228,6 +352,7 @@ static void dumpfs_print_statistic()
 		erofs_err("read dir failed");
 		return;
 	}
+
 
 	return;
 }
