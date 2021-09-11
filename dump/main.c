@@ -28,6 +28,18 @@ struct statistics {
 	unsigned long files;
 	unsigned long files_total_size;
 	unsigned long files_total_origin_size;
+	double compress_rate;
+	unsigned long compressed_files;
+	unsigned long uncompressed_files;
+
+	unsigned long regular_files;
+	unsigned long dir_files;
+	unsigned long chardev_files;
+	unsigned long blkdev_files;
+	unsigned long fifo_files;
+	unsigned long sock_files;
+	unsigned long symlink_files;
+
 };
 static struct statistics statistics;
 
@@ -171,10 +183,12 @@ static int erofs_get_file_actual_size(struct erofs_inode *inode, erofs_off_t *si
 	switch (inode->datalayout) {
 		case EROFS_INODE_FLAT_INLINE:
 		case EROFS_INODE_FLAT_PLAIN:
+			statistics.uncompressed_files++;
 			*size = inode->i_size;
 			break;
 		case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 		case EROFS_INODE_FLAT_COMPRESSION:
+			statistics.compressed_files++;
 			err = z_erofs_get_compressed_size(inode, size);
 			if (err) {
 				erofs_err("get compressed file size failed\n");
@@ -292,6 +306,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				}
 				original_size = inode.i_size;
 				statistics.files_total_origin_size += original_size;
+				statistics.regular_files++;
 				err = erofs_get_file_actual_size(&inode, &actual_size);
 				if (err) {
 					erofs_err("get file size failed\n");
@@ -317,6 +332,8 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 
 			case EROFS_FT_DIR:
 				if (de->nid != nid && de->nid != parent_nid) {	
+					statistics.dir_files++;
+					statistics.uncompressed_files++;
 					err = read_dir(de->nid, nid);
 					if (err) {
 						fprintf(stderr, "parse dir nid %llu error occurred\n", de->nid);
@@ -325,14 +342,24 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				}
 				break;	
 			case EROFS_FT_CHRDEV:
+				statistics.chardev_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_BLKDEV:
+				statistics.blkdev_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_FIFO:
+				statistics.fifo_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_SOCK:
+				statistics.sock_files++;
+				statistics.uncompressed_files++;
 				break;	
 			case EROFS_FT_SYMLINK:
+				statistics.symlink_files++;
+				statistics.uncompressed_files++;
 				break;
 			}
 			++de;
@@ -340,6 +367,28 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 		offset += maxsize;
 	}
 	return 0;
+}
+
+static void dumpfs_print_statistic_of_filetype()
+{
+	fprintf(stderr, "Filesystem total file count:         %lu\n", statistics.files);
+	fprintf(stderr, "Filesystem regular file count:       %lu\n", statistics.regular_files);
+	fprintf(stderr, "Filesystem directory count:          %lu\n", statistics.dir_files);
+	fprintf(stderr, "Filesystem symlink file count:       %lu\n", statistics.symlink_files);
+	fprintf(stderr, "Filesystem character device count:   %lu\n", statistics.chardev_files);
+	fprintf(stderr, "Filesystem block device count:       %lu\n", statistics.blkdev_files);
+	fprintf(stderr, "Filesystem FIFO file count:          %lu\n", statistics.fifo_files);
+	fprintf(stderr, "Filesystem SOCK file count:          %lu\n", statistics.sock_files);
+}
+
+static void dumpfs_print_statistic_of_compression()
+{
+	statistics.compress_rate = (double)(100 * statistics.files_total_size) / (double)(statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem compressed files:         %lu\n", statistics.compressed_files);
+	fprintf(stderr, "Filesystem uncompressed files:       %lu\n", statistics.uncompressed_files);
+	fprintf(stderr, "Filesystem total original file size: %lu Bytes\n", statistics.files_total_origin_size);
+	fprintf(stderr, "Filesystem total file size:          %lu Bytes\n", statistics.files_total_size);
+	fprintf(stderr, "Filesystem compress rate:            %.2f%%\n", statistics.compress_rate);
 }
 
 static void dumpfs_print_statistic()
@@ -353,6 +402,8 @@ static void dumpfs_print_statistic()
 		return;
 	}
 
+	dumpfs_print_statistic_of_filetype();
+	dumpfs_print_statistic_of_compression();
 
 	return;
 }
