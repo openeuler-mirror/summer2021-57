@@ -466,8 +466,8 @@ static void dumpfs_print_inode()
 	fprintf(stderr, "	File gid:		%u\n", inode.i_gid);
 	fprintf(stderr, "	File hard-link count:	%u\n", inode.i_nlink);
 
-	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
-	if (!found)
+	err = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
+	if (!err)
 		fprintf(stderr, "	File path:		%s\n", path);
 	else
 		fprintf(stderr, "Path not found\n");
@@ -513,7 +513,6 @@ static void dumpfs_print_inode_phy()
 
 	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
 	case EROFS_INODE_FLAT_COMPRESSION:
-		
 		err = z_erofs_map_blocks_iter(&inode, &map);
 		if (err) {
 			erofs_err("get file blocks range failed");
