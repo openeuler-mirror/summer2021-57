@@ -524,8 +524,8 @@ static void dumpfs_print_inode_phy()
 		break;
 	}
 
-	int found = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
-	if (!found) {
+	err = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
+	if (!err) {
 		fprintf(stderr, "	File Path:			%s\n", path);
 	}
 	else
