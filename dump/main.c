@@ -19,8 +19,10 @@
 
 struct dumpcfg {
 	bool print_superblock;
+	bool print_inode;
 	bool print_statistic;
 	bool print_version;
+	u64 ino;
 };
 static struct dumpcfg dumpcfg;
 
@@ -100,8 +102,9 @@ static void usage(void)
 {
 	fputs("usage: [options] erofs-image \n\n"
 		"Dump erofs layout from erofs-image, and [options] are:\n"
-		"-s          print information about superblock\n"
-		"-S      print statistic information of the erofs-image\n"
+		"-s         print information about superblock\n"
+		"-S         print statistic information of the erofs-image\n"
+		"-i #       print target # inode info\n"
 		"-v/-V      print dump.erofs version info\n"
 		"-h/--help  display this help and exit\n", stderr);
 }
@@ -113,6 +116,7 @@ static void dumpfs_print_version(void)
 static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
 	int opt;
+	u64 i;
 
 	while ((opt = getopt_long(argc, argv, "sSvVi:I:h",
 					long_options, NULL)) != -1) {
@@ -127,6 +131,11 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 		case 'V':
 			dumpfs_print_version();
 			exit(0);
+		case 'i':
+			i = atoll(optarg);
+			dumpcfg.print_inode = true;
+			dumpcfg.ino = i;
+			break;
 		case 'h':
 		case 1:
 		    usage();
@@ -291,6 +300,193 @@ static void dumpfs_print_superblock(void)
 	else
 		fprintf(stderr, "Filesystem has no superblock checksum feature\n");
 
+}
+
+static int get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid,
+		erofs_nid_t target, char *path, unsigned int pos)
+{
+	int err;
+	struct erofs_inode inode = {.nid = nid};
+	erofs_off_t offset;
+	char buf[EROFS_BLKSIZ];
+
+	path[pos++] = '/';
+	if (target == sbi.root_nid)
+		return 0;
+
+	err = erofs_read_inode_from_disk(&inode);
+	if (err) {
+		erofs_err("read inode %lu failed", nid);
+		return err;
+	}
+
+	offset = 0;
+	while (offset < inode.i_size) {
+		erofs_off_t maxsize = min_t(erofs_off_t,
+					inode.i_size - offset, EROFS_BLKSIZ);
+		struct erofs_dirent *de = (void *)buf;
+		struct erofs_dirent *end;
+		unsigned int nameoff;
+
+		err = erofs_pread(&inode, buf, maxsize, offset);
+		if (err)
+			return err;
+
+		nameoff = le16_to_cpu(de->nameoff);
+		if (nameoff < sizeof(struct erofs_dirent) ||
+		    nameoff >= PAGE_SIZE) {
+			erofs_err("invalid de[0].nameoff %u @ nid %llu",
+				  nameoff, nid | 0ULL);
+			return -EFSCORRUPTED;
+		}
+
+		end = (void *)buf + nameoff;
+		while (de < end) {
+			const char *dname;
+			unsigned int dname_len;
+
+			nameoff = le16_to_cpu(de->nameoff);
+			dname = (char *)buf + nameoff;
+			if (de + 1 >= end)
+				dname_len = strnlen(dname, maxsize - nameoff);
+			else
+				dname_len = le16_to_cpu(de[1].nameoff)
+					- nameoff;
+
+			/* a corrupted entry is found */
+			if (nameoff + dname_len > maxsize ||
+			    dname_len > EROFS_NAME_LEN) {
+				erofs_err("bogus dirent @ nid %llu",
+						le64_to_cpu(de->nid) | 0ULL);
+				DBG_BUGON(1);
+				return -EFSCORRUPTED;
+			}
+
+			if (de->nid == target) {
+				memcpy(path + pos, dname, dname_len);
+				return 0;
+			}
+
+			if (de->file_type == EROFS_FT_DIR &&
+					de->nid != parent_nid &&
+					de->nid != nid) {
+				memcpy(path + pos, dname, dname_len);
+				err = get_path_by_nid(de->nid, nid,
+						target, path, pos + dname_len);
+				if (!err)
+					return 0;
+				memset(path + pos, 0, dname_len);
+			}
+			++de;
+		}
+		offset += maxsize;
+	}
+	return -1;
+}
+
+static void dumpfs_print_inode(void)
+{
+	int err;
+	erofs_off_t size;
+	erofs_nid_t nid = dumpcfg.ino;
+	struct erofs_inode inode = {.nid = nid};
+	char path[PATH_MAX + 1] = {0};
+	time_t t = inode.i_ctime;
+
+	err = erofs_read_inode_from_disk(&inode);
+	if (err) {
+		erofs_err("read inode %lu from disk failed", nid);
+		return;
+	}
+
+	fprintf(stderr, "Inode %lu info:\n", dumpcfg.ino);
+	switch (inode.inode_isize) {
+	case 32:
+		fprintf(stderr, "	File inode is compacted layout\n");
+		break;
+	case 64:
+		fprintf(stderr, "	File inode is extended layout\n");
+		break;
+	default:
+		erofs_err("unsupported inode layout\n");
+	}
+	fprintf(stderr, "	File size:		%lu\n",
+			inode.i_size);
+	fprintf(stderr, "	File nid:		%lu\n",
+			inode.nid);
+	fprintf(stderr, "	File extent size:	%u\n",
+			inode.extent_isize);
+	fprintf(stderr, "	File xattr size:	%u\n",
+			inode.xattr_isize);
+	fprintf(stderr, "	File inode size:	%u\n",
+			inode.inode_isize);
+	fprintf(stderr, "	File type:		");
+	switch (inode.i_mode & S_IFMT) {
+	case S_IFREG:
+		fprintf(stderr, "regular\n");
+		break;
+	case S_IFDIR:
+		fprintf(stderr, "directory\n");
+		break;
+	case S_IFLNK:
+		fprintf(stderr, "link\n");
+		break;
+	case S_IFCHR:
+		fprintf(stderr, "character device\n");
+		break;
+	case S_IFBLK:
+		fprintf(stderr, "block device\n");
+		break;
+	case S_IFIFO:
+		fprintf(stderr, "fifo\n");
+		break;
+	case S_IFSOCK:
+		fprintf(stderr, "sock\n");
+		break;
+	default:
+		break;
+	}
+
+	err = get_file_compressed_size(&inode, &size);
+	if (err) {
+		erofs_err("get file size failed\n");
+		return;
+	}
+
+	fprintf(stderr, "	File original size:	%lu\n"
+			"	File on-disk size:	%lu\n",
+			inode.i_size, size);
+	fprintf(stderr, "	File compress rate:	%.2f%%\n",
+			(double)(100 * size) / (double)(inode.i_size));
+
+	fprintf(stderr, "	File datalayout:	");
+	switch (inode.datalayout) {
+	case EROFS_INODE_FLAT_PLAIN:
+		fprintf(stderr, "EROFS_INODE_FLAT_PLAIN\n");
+		break;
+	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
+		fprintf(stderr, "EROFS_INODE_FLAT_COMPRESSION_LEGACY\n");
+		break;
+	case EROFS_INODE_FLAT_INLINE:
+		fprintf(stderr, "EROFS_INODE_FLAT_INLINE\n");
+		break;
+	case EROFS_INODE_FLAT_COMPRESSION:
+		fprintf(stderr, "EROFS_INODE_FLAT_COMPRESSION\n");
+		break;
+	default:
+		break;
+	}
+
+	fprintf(stderr, "	File create time:	%s", ctime(&t));
+	fprintf(stderr, "	File uid:		%u\n", inode.i_uid);
+	fprintf(stderr, "	File gid:		%u\n", inode.i_gid);
+	fprintf(stderr, "	File hard-link count:	%u\n", inode.i_nlink);
+
+	err = get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
+	if (!err)
+		fprintf(stderr, "	File path:		%s\n", path);
+	else
+		fprintf(stderr, "Path not found\n");
 }
 
 static int get_file_type(const char *filename)
@@ -611,6 +807,8 @@ int main(int argc, char **argv)
 	if (dumpcfg.print_statistic)
 		dumpfs_print_statistic();
 
+	if (dumpcfg.print_inode)
+		dumpfs_print_inode();
 
 	return 0;
 }
