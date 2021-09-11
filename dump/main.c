@@ -23,50 +23,6 @@ struct dumpcfg {
 };
 static struct dumpcfg dumpcfg;
 
-static char chart_format[] = "%-16s	%-11d %8.2f%% |%-50s|\n";
-static char header_format[] = "%-16s %11s %16s |%-50s|\n";
-static char *file_types[] = {
-	".so",
-	".png",
-	".jpg",
-	".xml",
-	".html",
-	".odex",
-	".vdex",
-	".apk",
-	".ttf",
-	".jar",
-	".json",
-	".ogg",
-	".oat",
-	".art",
-	".rc",
-	".otf",
-	".txt",
-	"others",
-};
-enum {
-	SOFILETYPE = 0,
-	PNGFILETYPE,
-	JPEGFILETYPE,
-	XMLFILETYPE,
-	HTMLFILETYPE,
-	ODEXFILETYPE,
-	VDEXFILETYPE,
-	APKFILETYPE,
-	TTFFILETYPE,
-	JARFILETYPE,
-	JSONFILETYPE,
-	OGGFILETYPE,
-	OATFILETYPE,
-	ARTFILETYPE,
-	RCFILETYPE,
-	OTFFILETYPE,
-	TXTFILETYPE,
-	OTHERFILETYPE,
-};
-
-#define	FILE_SIZE_BITS	30
 struct statistics {
 	unsigned long blocks;
 	unsigned long files;
@@ -84,9 +40,6 @@ struct statistics {
 	unsigned long sock_files;
 	unsigned long symlink_files;
 
-	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
-	unsigned int file_original_size_counts[FILE_SIZE_BITS];
-	unsigned int file_actual_size_counts[FILE_SIZE_BITS];
 };
 static struct statistics statistics;
 
@@ -279,20 +232,6 @@ static void dumpfs_print_superblock()
 
 }
 
-static unsigned check_file_category_by_postfix(const char *filename) {
-	
-	char *postfix = strrchr(filename, '.');
-	int type = SOFILETYPE;
-	if (postfix == NULL)
-		return OTHERFILETYPE;
-	while (type < OTHERFILETYPE) {
-		if (strcmp(postfix, file_types[type]) == 0)
-			break;
-		type ++;
-	}
-	return type;
-}
-
 // file count、file size、file type
 static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid) 
 {
@@ -374,7 +313,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 					return err;
 				}
 				statistics.files_total_size += actual_size;
-				statistics.file_count_categorized_by_postfix[check_file_category_by_postfix(filename)]++;
 
 				original_size_mark = 0;
 				actual_size_mark = 0;
@@ -390,15 +328,6 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 						original_size_mark++;
 					}
 				}
-
-				if (original_size_mark >= FILE_SIZE_BITS - 1)
-					statistics.file_original_size_counts[FILE_SIZE_BITS - 1]++;
-				else
-					statistics.file_original_size_counts[original_size_mark]++;
-				if (actual_size_mark >= FILE_SIZE_BITS - 1)
-					statistics.file_actual_size_counts[FILE_SIZE_BITS - 1]++;
-				else
-					statistics.file_actual_size_counts[actual_size_mark]++;
 				break;	
 
 			case EROFS_FT_DIR:
@@ -451,59 +380,6 @@ static void dumpfs_print_statistic_of_filetype()
 	fprintf(stderr, "Filesystem FIFO file count:          %lu\n", statistics.fifo_files);
 	fprintf(stderr, "Filesystem SOCK file count:          %lu\n", statistics.sock_files);
 }
-static void dumpfs_print_chart_row(char *col1, unsigned col2, double col3, char *col4)
-{
-	char row[500] = {0};
-	sprintf(row, chart_format, col1, col2, col3, col4);
-	fprintf(stderr, row);
-	return;
-}
-
-static void dumpfs_print_chart_of_file(unsigned *file_counts, unsigned len)
-{
-	char col1[30];
-	unsigned col2;
-	double col3;
-	char col4[400];
-	unsigned lowerbound = 0, upperbound = 1;
-	fprintf(stderr, header_format, ">=(KB) .. <(KB) ", "count",	"ratio", "distribution");
-	for (int i = 0; i < len; i++) {
-		memset(col1, 0, 30);
-		memset(col4, 0, 400);
-		if (i == len - 1)
-			strcpy(col1, " others");
-		else if (i <= 6)
-			sprintf(col1, "%6d .. %-6d", lowerbound, upperbound);
-		else
-
-			sprintf(col1, "%6d .. %-6d", lowerbound, upperbound);
-		col2 = file_counts[i];
-		col3 = (double)(100 * col2) / (double)statistics.regular_files;
-		memset(col4, '#', col3 / 2);
-		dumpfs_print_chart_row(col1, col2, col3, col4);
-		lowerbound = upperbound;
-		upperbound <<= 1;
-	}
-}
-
-static void dumpfs_print_chart_of_file_type(char **file_types, unsigned len)
-{
-	char col1[30];
-	unsigned col2;
-	double col3;
-	char col4[401];
-
-	fprintf(stderr, header_format, "type", "count",	"ratio", "distribution");
-	for (int i = 0; i < len; i++) {
-		memset(col1, 0, 30);
-		memset(col4, 0, 401);
-		sprintf(col1, "%-17s", file_types[i]);
-		col2 = statistics.file_count_categorized_by_postfix[i];
-		col3 = (double)(100 * col2) / (double)statistics.regular_files;
-		memset(col4, '#', col3 / 2);
-		dumpfs_print_chart_row(col1, col2, col3, col4);
-	}
-}
 
 static void dumpfs_print_statistic_of_compression()
 {
@@ -529,12 +405,6 @@ static void dumpfs_print_statistic()
 	dumpfs_print_statistic_of_filetype();
 	dumpfs_print_statistic_of_compression();
 
-	fprintf(stderr, "\nOriginal file size distribution:\n");
-	dumpfs_print_chart_of_file(statistics.file_original_size_counts, 17);
-	fprintf(stderr, "\nOn-Disk file size distribution:\n");
-	dumpfs_print_chart_of_file(statistics.file_actual_size_counts, 17);
-	fprintf(stderr, "\nFile type distribution:\n");
-	dumpfs_print_chart_of_file_type(file_types, OTHERFILETYPE + 1);
 	return;
 }
 
