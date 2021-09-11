@@ -19,9 +19,11 @@
 struct dumpcfg {
 	bool print_superblock;
 	bool print_inode;
+	bool print_inode_phy;
 	bool print_statistic;
 	bool print_version; 
 	u64 ino;
+	u64 ino_phy;
 };
 static struct dumpcfg dumpcfg;
 
@@ -104,6 +106,7 @@ static void usage(void)
 		"	-s		print information about superblock\n"
 		"	-S		print statistic information of the erofs-image\n"
 		"	-i #		print target # inode info\n"
+		"	-I #		print target # inode on-disk info\n"
 		"	-v/-V		print dump.erofs version info\n"
 		"	-h/--help	display this help and exit\n", stderr);
 }
@@ -132,6 +135,11 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 				i = atoll(optarg);
 				dumpcfg.print_inode = true;
 				dumpcfg.ino = i;
+				break;
+			case 'I':
+				i = atoll(optarg);
+				dumpcfg.print_inode_phy = true;
+				dumpcfg.ino_phy = i;
 				break;
 			case 'h':
 			case 1:
@@ -466,6 +474,66 @@ static void dumpfs_print_inode()
 	return;
 }
 
+static void dumpfs_print_inode_phy()
+{
+	int err;
+	erofs_nid_t nid = dumpcfg.ino_phy;
+	struct erofs_inode inode = {.nid = nid};
+	char path[PATH_MAX + 1] = {0};
+
+	err = erofs_read_inode_from_disk(&inode);
+	if (err < 0) {
+		erofs_err("read inode %lu from disk failed", nid);
+		return;
+	}
+
+	const erofs_off_t ibase = iloc(inode.nid);
+	const erofs_off_t pos = Z_EROFS_VLE_LEGACY_INDEX_ALIGN(ibase + inode.inode_isize + inode.xattr_isize);
+	erofs_blk_t blocks = inode.u.i_blocks;
+	erofs_blk_t start = 0;
+	erofs_blk_t end = 0;
+	struct erofs_map_blocks map = {
+		.index = UINT_MAX,
+		.m_la = 0,
+	};
+
+	fprintf(stderr, "Inode %lu on-disk info:\n", nid);
+	switch (inode.datalayout) {
+	case EROFS_INODE_FLAT_INLINE:
+	case EROFS_INODE_FLAT_PLAIN:
+		if (inode.u.i_blkaddr == NULL_ADDR) 
+			start = end = erofs_blknr(pos);
+		else {
+			start = inode.u.i_blkaddr;
+			end = start + BLK_ROUND_UP(inode.i_size) - 1;
+		}
+		fprintf(stderr, "	File size:			%lu\n", inode.i_size);
+		fprintf(stderr, "	Plain Block Address:		%u - %u\n", start, end);
+		break;
+
+	case EROFS_INODE_FLAT_COMPRESSION_LEGACY:
+	case EROFS_INODE_FLAT_COMPRESSION:
+		err = z_erofs_map_blocks_iter(&inode, &map);
+		if (err) {
+			erofs_err("get file blocks range failed");
+		}
+
+		start = erofs_blknr(map.m_pa);
+		end = start - 1 + blocks;
+		fprintf(stderr, "	Compressed Block Address:	%u - %u\n", start, end);
+		break;
+	}
+
+	err = erofs_get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
+	if (!err) {
+		fprintf(stderr, "	File Path:			%s\n", path);
+	}
+	else
+		erofs_err("path not found");
+
+	return;
+}
+
 static unsigned check_file_category_by_postfix(const char *filename) {
 	
 	char *postfix = strrchr(filename, '.');
@@ -756,6 +824,9 @@ int main(int argc, char** argv)
 	if (dumpcfg.print_inode)
 		dumpfs_print_inode();
 
+	if (dumpcfg.print_inode_phy)
+		dumpfs_print_inode_phy();
+	
 	if (dumpcfg.print_statistic)
 		dumpfs_print_statistic();
 
