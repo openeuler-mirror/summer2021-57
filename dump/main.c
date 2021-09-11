@@ -157,7 +157,7 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 		return -ENOMEM;
 
 	if (optind < argc) {
-		erofs_err("Unexpected argument: %s\n", argv[optind]);
+		erofs_err("unexpected argument: %s\n", argv[optind]);
 		return -EINVAL;
 	}
 	return 0;
@@ -165,34 +165,57 @@ static int dumpfs_parse_options_cfg(int argc, char **argv)
 
 static int z_erofs_get_last_cluster_size_from_disk(struct erofs_map_blocks *map, erofs_off_t last_cluster_size, erofs_off_t *last_cluster_compressed_size)
 {
+	int ret;
 	int decompressed_len;
 	int compressed_len;
 	int inputmargin;
-	char *raw = (char*)malloc(map->m_plen);
-	char decompress[EROFS_BLKSIZ * 1536] = {0};
+	char *raw, *decompress;
+	
+	raw = (char*)malloc(map->m_plen);
+	if (!raw) {
+		erofs_err("allocate memory for raw failed");
+		return -1;
+	}
+	ret = dev_read(raw, map->m_pa, map->m_plen);
+	if (ret < 0) {
+		free(raw);
+		return -EIO;
+	}
 
 	inputmargin = 0;
 	if (erofs_sb_has_lz4_0padding()) {
 		while (!raw[inputmargin & ~PAGE_MASK])
 			if (!(++inputmargin & ~PAGE_MASK))
 				break;
-
 	}
 	if (inputmargin != 0)
 		compressed_len = map->m_plen;
 	else {
-		decompressed_len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, EROFS_BLKSIZ * 1536);
+		decompress = (char *)malloc(map->m_plen * 10);
+		if (!decompress) {
+			erofs_err("allocate memory for decompress space failed");
+			free(raw);
+			return -1;
+		}
+		decompressed_len = LZ4_decompress_safe_partial(raw, decompress, map->m_plen, last_cluster_size, map->m_plen * 10);
 		if (decompressed_len < 0) {
-			erofs_err("deceepress last cluster to get decompressed size failed");
+			erofs_err("decompress last cluster to get decompressed size failed");
+			free(decompress);
+			free(raw);
 			return -1;
 		}
 		compressed_len = LZ4_compress_destSize(decompress, raw, &decompressed_len, EROFS_BLKSIZ);
+		if (compressed_len < 0) {
+			erofs_err("compress to get last extent size failed\n");
+			free(decompress);
+			free(raw);
+			return -1;
+		}
+		free(decompress);
 	}
-	if (compressed_len < 0) {
-		erofs_err("compress to get last extent size failed\n");
-		return -1;
-	}
+	
 	*last_cluster_compressed_size = compressed_len;
+	free(raw);
 	return 0;
 }
 
@@ -386,7 +409,7 @@ static void dumpfs_print_inode()
 			fprintf(stderr, "	File inode is extended layout\n");
 			break;
 		default:
-			erofs_err("	Unsupported inode layout\n");
+			erofs_err("unsupported inode layout\n");
 	}
 	fprintf(stderr, "	File size:		%lu\n", inode.i_size);
 	fprintf(stderr, "	File nid:		%lu\n", inode.nid);
@@ -519,7 +542,7 @@ static void dumpfs_print_inode_phy()
 		fprintf(stderr, "	File Path:			%s\n", path);
 	}
 	else
-		erofs_err("Path not found");
+		erofs_err("path not found");
 
 	return;
 }
@@ -607,7 +630,7 @@ static int read_dir(erofs_nid_t nid, erofs_nid_t parent_nid)
 				err = erofs_read_inode_from_disk(&inode);
 				if (err) {
 					fprintf(stderr, "read reg file inode failed!\n");
-					erofs_err("Read file inode from disk failed!");
+					erofs_err("read file inode from disk failed!");
 					return err;
 				}
 				original_size = inode.i_size;
