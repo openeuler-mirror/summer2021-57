@@ -87,9 +87,6 @@ struct statistics {
 	unsigned long sock_files;
 	unsigned long symlink_files;
 
-	unsigned int partial_used_block;
-	unsigned long wasted_fragment_bytes;
-
 	unsigned int file_count_categorized_by_postfix[OTHERFILETYPE + 1];
 	unsigned int file_original_size_counts[FILE_SIZE_BITS];
 	unsigned int file_actual_size_counts[FILE_SIZE_BITS];
@@ -266,7 +263,6 @@ static void dumpfs_print_superblock()
 	time_t time = sbi.build_time;
 	fprintf(stderr, "Filesystem created:		%s", ctime(&time));
 
-	fprintf(stderr, "Filesystem lz4 max distanve:	%d\n", sbi.lz4_max_distance);
 	fprintf(stderr, "Filesystem uuid:		");
 	for (int i = 0; i < 16; i++)
 		fprintf(stderr, "%02x", sbi.uuid[i]);
@@ -282,10 +278,11 @@ static void dumpfs_print_superblock()
 	else
 		fprintf(stderr, "Filesystem not support big pcluster\n");
 
-	if (erofs_sb_has_compr_cfgs())
-		fprintf(stderr, "Filesystem has compression cfg\n");
+	if (erofs_sb_has_sb_chksum())
+		fprintf(stderr, "Filesystem has super block checksum feature\n");
 	else
-		fprintf(stderr, "Filesystem don't have compression cfg\n");
+		fprintf(stderr, "Filesystem doesn't have super block checksum feature\n");
+
 }
 
 static int erofs_get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid, erofs_nid_t target, char *path, unsigned pos)
