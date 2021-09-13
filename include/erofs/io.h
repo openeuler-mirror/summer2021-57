@@ -10,6 +10,7 @@
 #define __EROFS_IO_H
 
 #include <unistd.h>
+#include <sys/types.h>
 #include "internal.h"
 
 #ifndef O_BINARY
@@ -25,6 +26,8 @@ int dev_fillzero(u64 offset, size_t len, bool padding);
 int dev_fsync(void);
 int dev_resize(erofs_blk_t nblocks);
 u64 dev_length(void);
+dev_t erofs_new_decode_dev(u32 dev);
+int erofs_read_inode_from_disk(struct erofs_inode *vi);
 
 static inline int blk_write(const void *buf, erofs_blk_t blkaddr,
 			    u32 nblocks)
