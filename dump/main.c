@@ -21,8 +21,10 @@
 
 struct dumpcfg {
 	bool print_superblock;
+	bool print_inode;
 	bool print_statistic;
 	bool print_version;
+	u64 ino;
 };
 static struct dumpcfg dumpcfg;
 
@@ -109,8 +111,9 @@ static void usage(void)
 	fputs("usage: [options] erofs-image\n\n"
 		"Dump erofs layout from erofs-image, and [options] are:\n"
 		"--help  display this help and exit.\n"
-		"-s          print information about superblock\n"
+		"-s      print information about superblock\n"
 		"-S      print statistic information of the erofs-image\n"
+		"-i #    print target # inode info\n"
 		"-V      print the version number of dump.erofs and exit.\n",
 		stdout);
 }
@@ -123,10 +126,16 @@ static void dumpfs_print_version(void)
 static int dumpfs_parse_options_cfg(int argc, char **argv)
 {
 	int opt;
+	u64 i;
 
-	while ((opt = getopt_long(argc, argv, "sSV",
+	while ((opt = getopt_long(argc, argv, "i:sSV",
 					long_options, NULL)) != -1) {
 		switch (opt) {
+		case 'i':
+			i = atoll(optarg);
+			dumpcfg.print_inode = true;
+			dumpcfg.ino = i;
+			break;
 		case 's':
 			dumpcfg.print_superblock = true;
 			break;
@@ -266,6 +275,150 @@ static int get_file_compressed_size(struct erofs_inode *inode,
 		}
 	}
 	return 0;
+}
+static int get_path_by_nid(erofs_nid_t nid, erofs_nid_t parent_nid,
+		erofs_nid_t target, char *path, unsigned int pos)
+{
+	int err;
+	struct erofs_inode inode = {.nid = nid};
+	erofs_off_t offset;
+	char buf[EROFS_BLKSIZ];
+
+	path[pos++] = '/';
+	if (target == sbi.root_nid)
+		return 0;
+
+	err = erofs_read_inode_from_disk(&inode);
+	if (err) {
+		erofs_err("read inode %lu failed", nid);
+		return err;
+	}
+
+	offset = 0;
+	while (offset < inode.i_size) {
+		erofs_off_t maxsize = min_t(erofs_off_t,
+					inode.i_size - offset, EROFS_BLKSIZ);
+		struct erofs_dirent *de = (void *)buf;
+		struct erofs_dirent *end;
+		unsigned int nameoff;
+
+		err = erofs_pread(&inode, buf, maxsize, offset);
+		if (err)
+			return err;
+
+		nameoff = le16_to_cpu(de->nameoff);
+		if (nameoff < sizeof(struct erofs_dirent) ||
+		    nameoff >= PAGE_SIZE) {
+			erofs_err("invalid de[0].nameoff %u @ nid %llu",
+				  nameoff, nid | 0ULL);
+			return -EFSCORRUPTED;
+		}
+
+		end = (void *)buf + nameoff;
+		while (de < end) {
+			const char *dname;
+			unsigned int dname_len;
+
+			nameoff = le16_to_cpu(de->nameoff);
+			dname = (char *)buf + nameoff;
+			if (de + 1 >= end)
+				dname_len = strnlen(dname, maxsize - nameoff);
+			else
+				dname_len = le16_to_cpu(de[1].nameoff)
+					- nameoff;
+
+			/* a corrupted entry is found */
+			if (nameoff + dname_len > maxsize ||
+			    dname_len > EROFS_NAME_LEN) {
+				erofs_err("bogus dirent @ nid %llu",
+						le64_to_cpu(de->nid) | 0ULL);
+				DBG_BUGON(1);
+				return -EFSCORRUPTED;
+			}
+
+			if (de->nid == target) {
+				memcpy(path + pos, dname, dname_len);
+				return 0;
+			}
+
+			if (de->file_type == EROFS_FT_DIR &&
+					de->nid != parent_nid &&
+					de->nid != nid) {
+				memcpy(path + pos, dname, dname_len);
+				err = get_path_by_nid(de->nid, nid,
+						target, path, pos + dname_len);
+				if (!err)
+					return 0;
+				memset(path + pos, 0, dname_len);
+			}
+			++de;
+		}
+		offset += maxsize;
+	}
+	return -1;
+}
+
+static void dumpfs_print_inode(void)
+{
+	int err;
+	erofs_off_t size;
+	u16 access_mode;
+	erofs_nid_t nid = dumpcfg.ino;
+	struct erofs_inode inode = {.nid = nid};
+	char path[PATH_MAX + 1] = {0};
+	time_t t = inode.i_ctime;
+	char access_mode_str[] = "rwxrwxrwx";
+
+	err = erofs_read_inode_from_disk(&inode);
+	if (err) {
+		erofs_err("read inode %lu from disk failed", nid);
+		return;
+	}
+
+	err = get_file_compressed_size(&inode, &size);
+	if (err) {
+		erofs_err("get file size failed\n");
+		return;
+	}
+
+	fprintf(stdout, "Inode %lu info:\n", dumpcfg.ino);
+	err = get_path_by_nid(sbi.root_nid, sbi.root_nid, nid, path, 0);
+
+	fprintf(stdout, "File path:            %s\n",
+			!err ? path : "path not found");
+	fprintf(stdout, "File nid:             %lu\n", inode.nid);
+	fprintf(stdout, "File inode core size: %d\n", inode.inode_isize);
+	fprintf(stdout, "File original size:   %lu\n", inode.i_size);
+	fprintf(stdout,	"File on-disk size:    %lu\n", size);
+	fprintf(stdout, "File compress rate:   %.2f%%\n",
+			(double)(100 * size) / (double)(inode.i_size));
+	fprintf(stdout, "File extent size:     %u\n", inode.extent_isize);
+	fprintf(stdout,	"File xattr size:      %u\n", inode.xattr_isize);
+	fprintf(stdout, "File type:            ");
+	switch (inode.i_mode & S_IFMT) {
+	case S_IFBLK:  fprintf(stdout, "block device\n");     break;
+	case S_IFCHR:  fprintf(stdout, "character device\n"); break;
+	case S_IFDIR:  fprintf(stdout, "directory\n");        break;
+	case S_IFIFO:  fprintf(stdout, "FIFO/pipe\n");        break;
+	case S_IFLNK:  fprintf(stdout, "symlink\n");          break;
+	case S_IFREG:  fprintf(stdout, "regular file\n");     break;
+	case S_IFSOCK: fprintf(stdout, "socket\n");           break;
+	default:       fprintf(stdout, "unknown?\n");         break;
+	}
+
+	access_mode = inode.i_mode & 0777;
+	for (int i = 8; i >= 0; i--)
+		if (((access_mode >> i) & 1) == 0)
+			access_mode_str[8 - i] = '-';
+	fprintf(stdout, "File access:          %04o/%s\n",
+			access_mode, access_mode_str);
+	fprintf(stdout, "File uid:             %u\n", inode.i_uid);
+	fprintf(stdout, "File gid:             %u\n", inode.i_gid);
+	fprintf(stdout, "File datalayout:      %d\n", inode.datalayout);
+	fprintf(stdout,	"File nlink:           %u\n", inode.i_nlink);
+	fprintf(stdout, "File create time:     %s", ctime(&t));
+	fprintf(stdout, "File access time:     %s", ctime(&t));
+	fprintf(stdout, "File modify time:     %s", ctime(&t));
 }
 
 static int get_file_type(const char *filename)
@@ -602,6 +755,9 @@ int main(int argc, char **argv)
 
 	if (dumpcfg.print_statistic)
 		dumpfs_print_statistic();
+
+	if (dumpcfg.print_inode)
+		dumpfs_print_inode();
 out:
 	if (cfg.c_img_path)
 		free(cfg.c_img_path);
